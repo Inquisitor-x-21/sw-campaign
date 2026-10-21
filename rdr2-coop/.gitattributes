@@ -1,1 +1,3 @@
-*.bat text eol=crlf
+# Stored with CRLF as-is. cmd.exe mis-parses labels in LF-only batch files, and
+# git archive (GitHub "Download ZIP") would hand out LF with text conversion.
+*.bat -text

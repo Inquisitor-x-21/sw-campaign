@@ -11,7 +11,7 @@ rem command line. -products * also finds the Build Tools edition.
 set "PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%"
 set "VSPATH="
 set "VSMAJOR="
-set "VSWHERE_ARGS=-latest -products * -version 17 -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+set "VSWHERE_ARGS=-latest -products * -version 17.0 -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
 for /f "usebackq tokens=*" %%i in (`vswhere %VSWHERE_ARGS% -property installationPath 2^>nul`) do set "VSPATH=%%i"
 for /f "usebackq tokens=1 delims=." %%i in (`vswhere %VSWHERE_ARGS% -property installationVersion 2^>nul`) do set "VSMAJOR=%%i"
 if not defined VSPATH goto :no_vs
