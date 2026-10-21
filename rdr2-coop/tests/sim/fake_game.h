@@ -43,6 +43,10 @@ void addModel(const std::string& name, bool isHorse = false);
 int localPlayer();
 Ent* get(int id);
 void step(float dt);
+// What the game does to our peds behind our back:
+void destroy(int id);                               // mission cleanup deletes an entity
+void addEntity(int id, const std::string& model);   // a new entity gets a recycled handle
+void reloadWorld();                                 // loading a save: everything but the player goes
 size_t entityCount();
 size_t blipCount();
 int clockSecondsOfDay();

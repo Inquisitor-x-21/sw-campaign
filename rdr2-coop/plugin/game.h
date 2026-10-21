@@ -24,6 +24,10 @@ struct LocalCapture {
 LocalCapture captureLocalPlayer();
 bool isLoadingOrFaded();
 
+// After Script Hook restarts the script (the game reloaded), cached game
+// handles such as the relationship group are stale: look them up again.
+void forgetCachedHandles();
+
 coop::WorldState readClock();
 void setClock(const coop::WorldState& w);
 int secondsOfDay(const coop::WorldState& w);
@@ -47,6 +51,9 @@ rdr::Ped spawnPed(uint32_t modelHash, Vec3 pos, float heading);
 void prepareAvatarPed(rdr::Ped ped, int outfit, bool isHorse);
 void deleteEntity(rdr::Entity& entity);  // zeroes the handle
 bool entityExists(rdr::Entity entity);
+// Exists and still has this model. The game can delete our peds and later
+// reuse the handle, so this is the check for "still ours".
+bool entityHasModel(rdr::Entity entity, uint32_t modelHash);
 Vec3 entityPos(rdr::Entity entity);
 float entityHeading(rdr::Entity entity);
 

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <iterator>
 #include <set>
 
 #include "coop/protocol.h"
@@ -17,6 +18,7 @@ struct World {
     std::map<uint32_t, bool> horseModel;   // known models -> is horse
     std::map<uint32_t, int> loading;       // model -> frames since requested
     std::set<uint32_t> loaded;
+    std::set<uint32_t> released;           // no longer needed: evicted once nothing uses them
     int nextId = 100;
     int nextBlip = 5000;
     int clock = 12 * 3600;
@@ -129,10 +131,11 @@ void dispatch() {
             const uint32_t m = static_cast<uint32_t>(I(0));
             I(1);
             if (w.horseModel.count(m) != 0 && w.loaded.count(m) == 0 && w.loading.count(m) == 0) w.loading[m] = 0;
+            w.released.erase(m);
             break;
         }
         case STREAMING::HAS_MODEL_LOADED_HASH: retBool(w.loaded.count(static_cast<uint32_t>(I(0))) != 0); break;
-        case STREAMING::SET_MODEL_AS_NO_LONGER_NEEDED_HASH: I(0); break;
+        case STREAMING::SET_MODEL_AS_NO_LONGER_NEEDED_HASH: w.released.insert(static_cast<uint32_t>(I(0))); break;
         case STREAMING::REQUEST_COLLISION_AT_COORD_HASH: F(2); break;
         case PED::CREATE_PED_HASH: {
             const uint32_t m = static_cast<uint32_t>(I(0));
@@ -278,6 +281,18 @@ int localPlayer() { return 1; }
 Ent* get(int id) { return ent(id); }
 
 void step(float dt) {
+    // Like the game, drop released models once no entity uses them.
+    for (auto it = w.released.begin(); it != w.released.end();) {
+        const uint32_t m = *it;
+        const bool used = std::any_of(w.ents.begin(), w.ents.end(),
+                                      [m](const std::pair<const int, Ent>& kv) { return kv.second.model == m; });
+        if (used) {
+            ++it;
+        } else {
+            w.loaded.erase(m);
+            it = w.released.erase(it);
+        }
+    }
     for (auto it = w.loading.begin(); it != w.loading.end();) {
         if (++it->second >= 3) {
             w.loaded.insert(it->first);
@@ -328,6 +343,33 @@ void step(float dt) {
         }
     }
     w.clock = (w.clock + 1) % 86400;
+}
+
+void destroy(int id) {
+    if (Ent* e = ent(id)) {
+        if (e->mount != 0) dismount(*e);
+        if (Ent* r = ent(e->rider)) r->mount = 0;
+        w.ents.erase(id);
+    }
+}
+
+void addEntity(int id, const std::string& model) {
+    Ent e;
+    e.id = id;
+    e.model = coop::joaat(model);
+    e.visible = true;
+    w.ents[id] = e;
+}
+
+void reloadWorld() {
+    for (auto it = w.ents.begin(); it != w.ents.end();) {
+        it = it->first == 1 ? std::next(it) : w.ents.erase(it);
+    }
+    w.ents[1].mount = 0;
+    w.blips.clear();
+    w.loaded.clear();
+    w.loading.clear();
+    w.released.clear();
 }
 
 size_t entityCount() { return w.ents.size(); }

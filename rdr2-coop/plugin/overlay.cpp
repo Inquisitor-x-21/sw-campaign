@@ -1,5 +1,7 @@
 #include "overlay.h"
 
+#include <algorithm>
+
 #include "game.h"
 
 namespace {
@@ -18,7 +20,10 @@ void Overlay::message(const std::string& text, int64_t nowMs, Tone tone, uint32_
 }
 
 void Overlay::draw(const std::vector<std::string>& statusLines, bool panelVisible, int64_t nowMs) {
-    while (!messages_.empty() && messages_.front().until < nowMs) messages_.pop_front();
+    // Messages have different durations, so expired ones can sit behind live ones.
+    messages_.erase(std::remove_if(messages_.begin(), messages_.end(),
+                                   [nowMs](const Message& m) { return m.until < nowMs; }),
+                    messages_.end());
 
     float y = kTop;
     if (panelVisible) {

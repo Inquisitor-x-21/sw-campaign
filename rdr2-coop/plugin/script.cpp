@@ -6,8 +6,10 @@
 #include <ws2tcpip.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <map>
@@ -33,7 +35,13 @@ namespace {
 constexpr size_t kKeepLogs = 20;
 constexpr int64_t kRegroupWaitMs = 10000;
 
-int64_t nowMs() { return static_cast<int64_t>(GetTickCount64()); }
+// Not GetTickCount64: it only advances every ~15.6 ms, which shows up as
+// stutter in interpolated movement and jitter in state timestamps.
+// steady_clock is QueryPerformanceCounter on Windows.
+int64_t nowMs() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
 
 bool gameHasFocus() {
     DWORD pid = 0;
@@ -75,9 +83,13 @@ struct State {
     int64_t statsAt = 0;
     uint32_t frames = 0;
     std::vector<std::string> lanIps;
+    std::string logDir;
 };
 
-State g;
+// Deliberately never destroyed. Its destructors delete stand-ins through
+// natives and shut ENet down, and at game exit they would run from DllMain
+// (loader lock, wrong thread), which crashes or hangs instead of quitting.
+State& g = *new State();
 
 std::string moduleDir() {
     char path[MAX_PATH] = {};
@@ -85,8 +97,7 @@ std::string moduleDir() {
     return fs::path(path).parent_path().string();
 }
 
-void openLog() {
-    const fs::path logs = fs::path(g.dir) / "RDR2Coop_logs";
+bool openLogIn(const fs::path& logs) {
     std::error_code ec;
     fs::create_directories(logs, ec);
 
@@ -106,7 +117,17 @@ void openLog() {
     char name[96];
     std::snprintf(name, sizeof(name), "%04d-%02d-%02d_%02d-%02d-%02d_pid%lu.log", t.wYear, t.wMonth, t.wDay, t.wHour,
                   t.wMinute, t.wSecond, GetCurrentProcessId());
-    coop::logOpenFile((logs / name).string());
+    if (!coop::logOpenFile((logs / name).string())) return false;
+    g.logDir = logs.string();
+    return true;
+}
+
+// Next to the game if possible. Installs under Program Files aren't writable
+// without admin rights, so fall back to %LOCALAPPDATA% rather than log nothing.
+void openLog() {
+    if (openLogIn(fs::path(g.dir) / "RDR2Coop_logs")) return;
+    const char* localAppData = std::getenv("LOCALAPPDATA");
+    if (localAppData != nullptr) openLogIn(fs::path(localAppData) / "RDR2Coop" / "logs");
 }
 
 std::vector<std::string> lanAddresses() {
@@ -387,7 +408,9 @@ std::vector<std::string> statusLines(int64_t now) {
             }
             if (it->second->status() != "ok") status = "  (" + it->second->status() + ")";
         }
-        const std::string ping = v.pingMs > 0 ? std::to_string(v.pingMs) + " ms" : "via host";
+        // Only the host link has a ping; clients reach each other through the host.
+        const bool direct = g.session->role() == Role::Host || v.info.id == coop::kHostId;
+        const std::string ping = direct ? std::to_string(v.pingMs) + " ms" : "via host";
         std::snprintf(line, sizeof(line), "  %s   %s   %s%s", v.info.name.c_str(), where.c_str(), ping.c_str(),
                       status.c_str());
         lines.push_back(line);
@@ -428,11 +451,26 @@ void initOnce() {
     g.dir = moduleDir();
     openLog();
     LOG_INFO("RDR2 Co-op %s loaded from %s (pid %lu)", RDR2COOP_VERSION, g.dir.c_str(), GetCurrentProcessId());
+    LOG_INFO("log folder: %s", g.logDir.c_str());
     loadConfig(false);
     g.overlay.message("RDR2 Co-op loaded - " + coop::keyName(g.cfg.keyHost) + " to host, " +
                           coop::keyName(g.cfg.keyJoin) + " to join",
                       nowMs(), Overlay::Tone::Info, 10000);
+    if (g.logDir.empty()) {
+        g.overlay.message("Couldn't create a log file (game folder read-only?)", nowMs(), Overlay::Tone::Warn, 10000);
+    } else if (g.logDir.rfind(g.dir, 0) != 0) {
+        g.overlay.message("Logs: " + g.logDir + " (game folder is read-only)", nowMs(), Overlay::Tone::Warn, 10000);
+    }
     g.initialized = true;
+}
+
+// Script Hook starts the script again when the game reloads (loading a save,
+// for example). The session and its sockets live on in g, but the stand-ins
+// went with the old world, and their handles may now name other entities.
+void onScriptRestart() {
+    LOG_INFO("script restarted (game reloaded?); respawning %u stand-in(s)", static_cast<unsigned>(g.avatars.size()));
+    for (auto& kv : g.avatars) kv.second->forgetEntities();
+    game::forgetCachedHandles();
 }
 
 void tick() {
@@ -447,7 +485,11 @@ void tick() {
 }  // namespace
 
 void coopScriptMain() {
-    if (!g.initialized) initOnce();
+    if (!g.initialized) {
+        initOnce();
+    } else {
+        onScriptRestart();
+    }
     for (;;) {
         try {
             tick();

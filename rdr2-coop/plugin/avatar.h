@@ -46,6 +46,9 @@ public:
 
     void update(const coop::SampleResult& sample, int64_t nowMs, const AvatarTuning& tuning);
     void despawn();
+    // Drops every game handle without touching the game. For after Script Hook
+    // restarts the script (the game reloaded and took our peds with it).
+    void forgetEntities();
     void refreshBlip(const AvatarTuning& tuning);
 
     const coop::PlayerInfo& info() const { return info_; }
@@ -66,6 +69,7 @@ private:
     bool ensureHorse(const coop::PlayerState& s, int64_t nowMs, const AvatarTuning& tuning);
     void dismountIfNeeded(const coop::PlayerState& s);
     void maybeDropIdleHorse(int64_t nowMs);
+    void noteSeatChange(bool retrying, const char* problem);
     void drive(rdr::Entity entity, rdr::Ped taskPed, coop::Vec3 target, coop::Vec3 vel, float heading,
                coop::MoveState move, coop::MovementMode mode, Drive& d, int64_t nowMs, const AvatarTuning& tuning);
 
@@ -84,6 +88,7 @@ private:
     game::ModelRequest horseReq_;
     int64_t horseRetryAt_ = 0;
     int64_t horseIdleSince_ = -1;
+    uint32_t seatRetries_ = 0;
 
     Drive footDrive_;
     Drive horseDrive_;

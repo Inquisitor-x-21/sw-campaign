@@ -185,11 +185,43 @@ bool RemoteAvatar::ensureHorse(const PlayerState& s, int64_t now, const AvatarTu
 }
 
 void RemoteAvatar::dismountIfNeeded(const PlayerState& s) {
-    if (horse_ == 0 || !PED::IS_PED_ON_MOUNT(ped_)) return;
+    const bool onMount = horse_ != 0 && PED::IS_PED_ON_MOUNT(ped_);
+    noteSeatChange(onMount, "CLEAR_PED_TASKS_IMMEDIATELY didn't dismount the rider");
+    if (!onMount) return;
     TASK::CLEAR_PED_TASKS_IMMEDIATELY(ped_, TRUE, TRUE);
     ENTITY::SET_ENTITY_COORDS_NO_OFFSET(ped_, s.pos.x, s.pos.y, s.pos.z, FALSE, FALSE, FALSE);
     footDrive_ = {};
     horseDrive_ = {};
+}
+
+// Mounting and dismounting are expected to take effect at once. If one keeps
+// being retried, say so once in the log: it means the native doesn't do what
+// we assume, which nobody can see from outside the game.
+void RemoteAvatar::noteSeatChange(bool retrying, const char* problem) {
+    constexpr uint32_t kWarnAfterFrames = 60;
+    if (!retrying) {
+        seatRetries_ = 0;
+        return;
+    }
+    if (++seatRetries_ == kWarnAfterFrames) {
+        LOG_WARN("%s: %s after %u frames (still retrying)", info_.name.c_str(), problem, kWarnAfterFrames);
+    }
+}
+
+void RemoteAvatar::forgetEntities() {
+    ped_ = 0;
+    horse_ = 0;
+    blip_ = 0;
+    horseWanted_ = 0;
+    riderReq_ = {};
+    horseReq_ = {};
+    retryAt_ = 0;
+    horseRetryAt_ = 0;
+    horseIdleSince_ = -1;
+    seatRetries_ = 0;
+    footDrive_ = {};
+    horseDrive_ = {};
+    status_ = "waiting for position";
 }
 
 void RemoteAvatar::maybeDropIdleHorse(int64_t now) {
@@ -209,7 +241,8 @@ void RemoteAvatar::update(const coop::SampleResult& sample, int64_t now, const A
     if (sample.extrapolated) ++stats_.extrapolated;
     stats_.minBufferMs = std::min(stats_.minBufferMs, sample.bufferAheadMs);
 
-    if (ped_ != 0 && !game::entityExists(ped_)) {
+    if (horse_ != 0 && !game::entityHasModel(horse_, horseModel_)) horse_ = 0;
+    if (ped_ != 0 && !game::entityHasModel(ped_, riderModel_)) {
         LOG_WARN("stand-in for %s disappeared (game cleanup?), respawning", info_.name.c_str());
         ped_ = 0;
         game::removeBlip(blip_);
@@ -222,10 +255,12 @@ void RemoteAvatar::update(const coop::SampleResult& sample, int64_t now, const A
         lastTarget_ = s.mountPos;
         if (ensureHorse(s, now, tuning)) {
             horseIdleSince_ = -1;
-            if (!PED::IS_PED_ON_MOUNT(ped_) || PED::GET_MOUNT(ped_) != horse_) {
+            const bool seated = PED::IS_PED_ON_MOUNT(ped_) && PED::GET_MOUNT(ped_) == horse_;
+            if (!seated) {
                 PED::SET_PED_ONTO_MOUNT(ped_, horse_, -1, TRUE);
                 horseDrive_ = {};
             }
+            noteSeatChange(!seated, "SET_PED_ONTO_MOUNT didn't seat the rider");
             drive(horse_, ped_, s.mountPos, s.mountVel, s.mountHeading, s.move, tuning.mounted, horseDrive_, now,
                   tuning);
         } else {

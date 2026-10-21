@@ -247,6 +247,116 @@ void testLocalCaptureAndTeleport() {
     CHECK(sim::unknownNatives().empty() && sim::pushesOutOfRange() == 0);
 }
 
+// Our rider stand-in (mission ped with the expected model) and its horse.
+struct StandIn {
+    const sim::Ent* rider = nullptr;
+    const sim::Ent* horse = nullptr;
+};
+
+StandIn findStandIn(uint32_t riderModel) {
+    StandIn s;
+    for (int id = 100; id < 1000; ++id) {
+        const sim::Ent* e = sim::get(id);
+        if (e != nullptr && e->mission && !e->isHorse && e->model == riderModel) s.rider = e;
+    }
+    if (s.rider != nullptr && s.rider->mount != 0) s.horse = sim::get(s.rider->mount);
+    return s;
+}
+
+// The game takes stand-ins away in three ways: mission cleanup deletes them,
+// a deleted ped's handle is recycled for a new entity, and loading a save wipes
+// the world and restarts the script. Each time the stand-in must come back as
+// the same model on the same breed, and entities that aren't ours must not be
+// moved, tasked or deleted.
+void testRespawns() {
+    sim::reset();
+    setupModels();
+    sim::addModel("a_m_m_rancher_01");
+    const uint32_t riderModel = joaat("g_m_m_unicriminals_01");
+    const uint32_t morgan = joaat("a_c_horse_morgan_bay");
+
+    PlayerInfo info;
+    info.id = 3;
+    info.name = "Javier";
+    info.model = "g_m_m_unicriminals_01";
+    info.outfit = 0;
+    AvatarTuning tuning;
+    int64_t now = 100000;
+    {
+        RemoteAvatar avatar(info);
+        auto run = [&](double seconds) {
+            for (int i = 0; i < static_cast<int>(seconds * 60); ++i) {
+                SampleResult r;
+                r.state.flags = StateFlag::Mounted;
+                r.state.mountModel = morgan;
+                r.state.pos = {50, 50, 11};
+                r.state.mountPos = {50, 50, 10};
+                avatar.update(r, now, tuning);
+                sim::step(1.f / 60.f);
+                now += 16;
+            }
+        };
+        auto mountedOnMorgan = [&]() {
+            const StandIn s = findStandIn(riderModel);
+            return s.rider != nullptr && s.horse != nullptr && s.horse->model == morgan;
+        };
+
+        // Longer than the 8 s model request timeout, so a stale request would show.
+        run(10);
+        CHECK(mountedOnMorgan());
+
+        // Mission cleanup deletes rider and horse, and their models are evicted
+        // before we look again (a loading screen, when stand-ins aren't updated).
+        StandIn s = findStandIn(riderModel);
+        CHECK(s.rider != nullptr && s.horse != nullptr);
+        if (s.rider != nullptr && s.horse != nullptr) {
+            sim::destroy(s.rider->id);
+            sim::destroy(s.horse->id);
+        }
+        sim::step(1.f / 60.f);
+        run(3);
+        CHECK(mountedOnMorgan());  // not the fallback model or breed
+
+        // The rider is deleted and its handle goes to a new, unrelated ped.
+        s = findStandIn(riderModel);
+        const int recycled = s.rider != nullptr ? s.rider->id : 0;
+        if (recycled != 0) {
+            sim::destroy(recycled);
+            sim::addEntity(recycled, "a_m_m_rancher_01");
+        }
+        run(3);
+        CHECK(mountedOnMorgan());
+        const sim::Ent* stranger = sim::get(recycled);
+        CHECK(stranger != nullptr && !stranger->mission && !stranger->hasTask && stranger->mount == 0);
+
+        // Loading a save: the world goes, the script restarts, and the old
+        // handles come back as other peds, one even with our rider's model.
+        s = findStandIn(riderModel);
+        const int oldRider = s.rider != nullptr ? s.rider->id : 0;
+        const int oldHorse = s.horse != nullptr ? s.horse->id : 0;
+        sim::reloadWorld();
+        if (oldRider != 0) sim::addEntity(oldRider, "g_m_m_unicriminals_01");
+        if (oldHorse != 0) sim::addEntity(oldHorse, "a_m_m_rancher_01");
+        avatar.forgetEntities();
+        game::forgetCachedHandles();
+        run(3);
+        CHECK(mountedOnMorgan());
+        const StandIn after = findStandIn(riderModel);
+        CHECK(after.rider != nullptr && after.rider->id != oldRider);
+        CHECK(after.rider != nullptr && after.rider->relGroup == joaat("RDR2COOP_PLAYERS"));
+        for (int id : {oldRider, oldHorse}) {
+            const sim::Ent* e = sim::get(id);
+            CHECK(e != nullptr && !e->mission && !e->hasTask && e->mount == 0 && e->rider == 0);
+        }
+        CHECK(sim::blipCount() == 1);
+    }
+    // Only the local player and the two peds that got the old handles are left.
+    CHECK(sim::entityCount() == 3);
+    CHECK(sim::blipCount() == 0);
+    CHECK(sim::unknownNatives().empty());
+    CHECK(sim::pushesOutOfRange() == 0);  // also counts deleting an entity that isn't ours
+}
+
 void testOverlayDraws() {
     sim::reset();
     Overlay o;
@@ -260,6 +370,14 @@ void testOverlayDraws() {
     sim::clearText();
     o.draw({"panel"}, false, 7000);  // panel hidden, message expired
     CHECK(sim::textDrawn().empty());
+
+    // A short message behind a long one still disappears on time.
+    o.message("Hosting on port 7777", 10000, Overlay::Tone::Good, 12000);
+    o.message("Bot1 joined (2/4)", 10000, Overlay::Tone::Good, 6000);
+    sim::clearText();
+    o.draw({}, false, 18000);
+    CHECK(sim::textDrawn().size() == 1);
+    CHECK(sim::textDrawn().size() == 1 && sim::textDrawn()[0] == "Hosting on port 7777");
     CHECK(sim::pushesOutOfRange() == 0);
 }
 
@@ -270,6 +388,8 @@ int main() {
     testLocalCaptureAndTeleport();
     std::printf("[ RUN  ] overlay\n");
     testOverlayDraws();
+    std::printf("[ RUN  ] respawn after cleanup, recycled handles, reload\n");
+    testRespawns();
     std::printf("[ RUN  ] scenario, Teleport movement\n");
     runScenario(MovementMode::Teleport);
     std::printf("[ RUN  ] scenario, Hybrid movement\n");

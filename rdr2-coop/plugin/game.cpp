@@ -11,22 +11,28 @@ namespace game {
 namespace {
 
 constexpr int kRelationshipCompanion = 0;
+constexpr const char* kRelationshipGroupName = "RDR2COOP_PLAYERS";
+
+Hash g_group = 0;
 
 uint32_t coopRelationshipGroup() {
-    static Hash group = 0;
-    if (group == 0) {
+    if (g_group == 0) {
         Hash created = 0;
-        PED::ADD_RELATIONSHIP_GROUP("RDR2COOP_PLAYERS", &created);
-        group = created;
+        PED::ADD_RELATIONSHIP_GROUP(kRelationshipGroupName, &created);
+        // Group hashes are the name's hash; covers the group already existing.
+        const Hash group = created != 0 ? created : coop::joaat(kRelationshipGroupName);
+        g_group = group;
         const Hash player = coop::joaat("PLAYER");
         PED::SET_RELATIONSHIP_BETWEEN_GROUPS(kRelationshipCompanion, group, player);
         PED::SET_RELATIONSHIP_BETWEEN_GROUPS(kRelationshipCompanion, player, group);
         LOG_DEBUG("relationship group RDR2COOP_PLAYERS = 0x%08X", group);
     }
-    return group;
+    return g_group;
 }
 
 }  // namespace
+
+void forgetCachedHandles() { g_group = 0; }
 
 LocalCapture captureLocalPlayer() {
     LocalCapture c;
@@ -94,7 +100,12 @@ int ensureModel(ModelRequest& req, uint32_t modelHash, int64_t nowMs) {
         req.since = nowMs;
         req.active = true;
     }
-    if (STREAMING::HAS_MODEL_LOADED(modelHash)) return 1;
+    if (STREAMING::HAS_MODEL_LOADED(modelHash)) {
+        // Done. A later call (a respawn after the game evicted the model) must
+        // start a new request with a fresh timeout, not inherit this one's.
+        req.active = false;
+        return 1;
+    }
     if (nowMs - req.since > 8000) {
         req.active = false;
         return -1;
@@ -135,6 +146,10 @@ void deleteEntity(Entity& entity) {
 }
 
 bool entityExists(Entity entity) { return entity != 0 && ENTITY::DOES_ENTITY_EXIST(entity); }
+
+bool entityHasModel(Entity entity, uint32_t modelHash) {
+    return entityExists(entity) && ENTITY::GET_ENTITY_MODEL(entity) == modelHash;
+}
 
 Vec3 entityPos(Entity entity) { return toVec(ENTITY::GET_ENTITY_COORDS(entity, TRUE, TRUE)); }
 
