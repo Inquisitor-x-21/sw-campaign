@@ -100,9 +100,11 @@ new tests fail 20 checks (14 in `plugin_sim_tests`, 6 in
    - `vswhere` is no longer run through a quoted `Program Files (x86)` path
      inside `FOR /F`.
    - The SDK check now looks for the `.lib` too.
-   - Started by double-click (or drag and drop onto `install.bat`), the window
-     now stays open, so test results and errors can be read. It doesn't wait
-     when input is redirected, so scripts and agents won't hang.
+   - Both now end with `pause`, so a double-clicked window stays open and
+     test results and errors can be read. Claude Code (which sets
+     `CLAUDECODE`), CI, or a `nopause` argument skip it. (The first version
+     tried to detect a double-click from `%cmdcmdline%` and wait with
+     `timeout`; on the user's PC the window still closed at once.)
    - The copy-failed message now mentions administrator rights for Program
      Files.
    - `.gitattributes` stores `.bat` files with CRLF exactly as they are. (The
@@ -152,8 +154,7 @@ id reuse all hold up, and the loopback tests cover them well.
    `nativePush64` and `nativeCall`. The SDK's `main.h` is expected to declare
    them exactly like the stub, plus a few unused extras. Build with
    `build.bat`, then fix any real `/W4` warnings. Its own `static` helpers in
-   the SDK header may warn (C4505); that is harmless. Also double-click
-   `build.bat` once to confirm the window stays open at the end.
+   the SDK header may warn (C4505); that is harmless.
 3. **After loading a save mid-session**, the log should show `script restarted`
    and the stand-ins should come back. If it doesn't appear, Script Hook RDR2
    doesn't restart scripts on reload, and stand-ins should still respawn

@@ -41,11 +41,11 @@ echo needs install.bat to be run as administrator.
 goto :finish
 
 :finish
-rem Started by double-click or drag and drop? Keep the window open.
-rem (timeout returns at once when input is redirected, so scripts don't hang.)
-setlocal EnableDelayedExpansion
-if /i "!cmdcmdline:%~nx0=!"=="!cmdcmdline!" exit /b %RC%
+rem Keep the window open after a double-click or drag and drop. Claude Code
+rem (which sets CLAUDECODE), CI, or a second argument "nopause" skip the wait.
+if /i "%~2"=="nopause" exit /b %RC%
+if defined CLAUDECODE exit /b %RC%
+if defined CI exit /b %RC%
 echo.
-echo Press any key to close this window.
-timeout /t -1 >nul 2>nul
+pause
 exit /b %RC%

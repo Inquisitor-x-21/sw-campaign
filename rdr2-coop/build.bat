@@ -1,6 +1,8 @@
 @echo off
 rem Builds RDR2Coop.asi, coopbot.exe and core_tests.exe with Visual Studio 2022
 rem or 2026 ("Desktop development with C++"), then runs the tests.
+rem   build.bat            waits for a key at the end (for double-clicking)
+rem   build.bat nopause    doesn't wait (scripts)
 setlocal
 cd /d "%~dp0"
 set "RC=1"
@@ -84,11 +86,11 @@ echo Build or tests failed - see the messages above.
 goto :finish
 
 :finish
-rem Started by double-click? Keep the window open so the result can be read.
-rem (timeout returns at once when input is redirected, so scripts don't hang.)
-setlocal EnableDelayedExpansion
-if /i "!cmdcmdline:%~nx0=!"=="!cmdcmdline!" exit /b %RC%
+rem Keep the window open so a double-clicked run can be read. Claude Code (which
+rem sets CLAUDECODE), CI, or "build.bat nopause" skip the wait.
+if /i "%~1"=="nopause" exit /b %RC%
+if defined CLAUDECODE exit /b %RC%
+if defined CI exit /b %RC%
 echo.
-echo Press any key to close this window.
-timeout /t -1 >nul 2>nul
+pause
 exit /b %RC%

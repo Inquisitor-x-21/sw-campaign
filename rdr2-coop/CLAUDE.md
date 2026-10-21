@@ -69,7 +69,8 @@ sdk/                user puts the Script Hook RDR2 SDK here (not included)
 - New settings go through `core/src/config.cpp` (with range checks + a test)
   and get documented in `config/RDR2Coop.ini`.
 - Run `build.bat` after changes; it builds and runs `core_tests` and
-  `coopbot selftest`. (`plugin_sim_tests` and `plugin_script_tests` only
+  `coopbot selftest`. It skips its final `pause` under Claude Code (CLAUDECODE
+  is set); elsewhere use `build.bat nopause`. (`plugin_sim_tests` and `plugin_script_tests` only
   build on Linux/macOS.)
 
 ## Setup on this PC (ask the user before installing anything)

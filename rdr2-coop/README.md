@@ -28,7 +28,8 @@ Back up your saves first: `Documents\Rockstar Games\Red Dead Redemption 2\Profil
 1. Extract the SDK into `sdk\` so these exist:
    `sdk\inc\main.h` and `sdk\lib\ScriptHookRDR2.lib`
 2. Double-click `build.bat` (or run it in a terminal). It builds and runs the
-   tests. You get `build\Release\RDR2Coop.asi` and `RDR2Coop.ini`.
+   tests, then waits for a key so you can read the result. You get
+   `build\Release\RDR2Coop.asi` and `RDR2Coop.ini`.
 3. Install: `install.bat "C:\path\to\Red Dead Redemption 2"` (or copy both
    files next to `RDR2.exe`).
 
