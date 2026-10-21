@@ -30,6 +30,7 @@ struct Ent {
     int mount = 0;  // rider -> horse
     int rider = 0;  // horse -> rider
     bool hasTask = false;
+    bool taskAnyMeans = false;  // TASK_GO_TO_COORD_ANY_MEANS rather than TASK_GO_STRAIGHT_TO_COORD
     coop::Vec3 taskTarget;
     float taskBlend = 0.f;
     float taskFinalHeading = 0.f;

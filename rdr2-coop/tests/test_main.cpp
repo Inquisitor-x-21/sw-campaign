@@ -335,6 +335,8 @@ TEST(config_parses_and_warns) {
         "[Sync]\n"
         "OnFootMovement = teleport\n"
         "TeleportDistance = abc\n"
+        "[Tuning]\n"
+        "MountedTask = horse\n"
         "[Hotkeys]\n"
         "Host = numpad7\n"
         "Leave = none\n"
@@ -350,11 +352,18 @@ TEST(config_parses_and_warns) {
     CHECK(c.outfit == -1);
     CHECK(c.onFootMovement == MovementMode::Teleport);
     CHECK_NEAR(c.teleportDistance, 25.0, 1e-6);
+    CHECK(c.mountedTask == MountedTask::Horse);
     CHECK(c.keyHost == 0x67);
     CHECK(c.keyLeave == 0);
     CHECK(c.keyJoin == 0x77);  // F99 refused, default F8 kept
     CHECK(warn.size() == 4);   // MaxPlayers, TeleportDistance, Join, Verbos
     for (const auto& w : warn) std::printf("    (expected warning) %s\n", w.c_str());
+
+    Config d;
+    warn.clear();
+    CHECK(parseConfig("[Tuning]\nMountedTask = Saddle\n", d, warn));
+    CHECK(d.mountedTask == MountedTask::AnyMeans);  // unknown value, default kept
+    CHECK(warn.size() == 1);
 }
 
 TEST(config_key_names_roundtrip) {

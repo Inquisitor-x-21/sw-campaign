@@ -13,6 +13,13 @@ enum class MovementMode : uint8_t {
     Teleport,  // set position every frame (always in sync, slides without animation)
 };
 
+// Who gets the movement task while a stand-in rides (Hybrid only).
+enum class MountedTask : uint8_t {
+    Rider,     // TASK_GO_STRAIGHT_TO_COORD on the rider: didn't move the horse in game
+    Horse,     // TASK_GO_STRAIGHT_TO_COORD on the horse
+    AnyMeans,  // TASK_GO_TO_COORD_ANY_MEANS on the rider (rides the mount there)
+};
+
 struct Config {
     // [Network]
     uint16_t hostPort = 7777;
@@ -41,6 +48,7 @@ struct Config {
     float correctionGain = 1.5f;    // extra m/s per metre of error
     uint32_t retaskMs = 400;        // how often a movement task is refreshed
     float lookaheadSeconds = 0.5f;  // how far ahead of the remote position to aim
+    MountedTask mountedTask = MountedTask::AnyMeans;
 
     // [Display]
     bool overlay = true;
@@ -67,6 +75,7 @@ bool loadConfigFile(const std::string& path, Config& cfg, std::vector<std::strin
 int parseKeyName(const std::string& name);  // virtual-key code, 0 for NONE, -1 if unknown
 std::string keyName(int vk);
 const char* toString(MovementMode m);
+const char* toString(MountedTask t);
 std::string describeConfig(const Config& cfg);
 
 }  // namespace coop

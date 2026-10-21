@@ -2,8 +2,9 @@
 
 Drop-in/drop-out co-op mod for Red Dead Redemption 2 **story mode** on PC.
 Stage 1 (players, horses, time of day) is written and passes every test that
-runs without the game. **It has never run inside RDR2.** You are picking it
-up on the user's Windows PC to review it, build it, and run the in-game tests.
+runs without the game. The first in-game session ran on the user's PC (VS 2026,
+Steam): it loads, hosts, bots join, and stand-ins show up; riding needed a
+different task. Results are under "First in-game results" in `REVIEW.md`.
 
 ## Decisions already made with the user (don't change without asking)
 
@@ -32,8 +33,10 @@ areas, in order:
    simulated game; never yet run inside RDR2.
 2. Native behaviour assumptions in `plugin/avatar.cpp` and `plugin/game.cpp`
    (signatures are verified, meanings are not):
-   - `TASK_GO_STRAIGHT_TO_COORD` used to animate walking and riding; on a
-     mounted rider it is expected to move the horse.
+   - `TASK_GO_STRAIGHT_TO_COORD` animates walking (seen in game). On a
+     mounted rider it does **not** move the horse (seen in game), so riding
+     uses `MountedTask` in the ini: `AnyMeans` (default) or `Horse`, switchable
+     with F6. Which one rides well is still to be seen.
    - `SET_PED_ONTO_MOUNT(ped, horse, -1, TRUE)` seat index -1.
    - `CLEAR_PED_TASKS_IMMEDIATELY` expected to dismount instantly.
    - `CREATE_PED` + `_SET_RANDOM_OUTFIT_VARIATION` to make spawned peds visible.

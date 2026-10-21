@@ -64,7 +64,7 @@ Script remoteAt(double t) {
     return {MoveState::Idle, {}, false, 0};
 }
 
-int runScenario(MovementMode mode) {
+int runScenario(MovementMode mode, MountedTask mountedTask) {
     sim::reset();
     setupModels();
     const int failuresBefore = g_failures;
@@ -77,6 +77,7 @@ int runScenario(MovementMode mode) {
     AvatarTuning tuning;
     tuning.onFoot = mode;
     tuning.mounted = mode;
+    tuning.mountedTask = mountedTask;
 
     std::vector<PhaseStats> phases = {{"walk", 1, 5},      {"run", 5.5, 8},     {"stand", 8.6, 10},
                                       {"gallop", 11, 20},  {"stand mounted", 20.6, 22}, {"walk again", 22.6, 25},
@@ -176,7 +177,7 @@ int runScenario(MovementMode mode) {
             }
         }
 
-        std::printf("    stand-in error vs. target (%s):\n", toString(mode));
+        std::printf("    stand-in error vs. target (%s, MountedTask %s):\n", toString(mode), toString(mountedTask));
         for (const PhaseStats& p : phases) {
             std::printf("      %-18s avg %.2f m  max %.2f m\n", p.name, p.n ? p.errSum / p.n : -1.0, p.errMax);
         }
@@ -430,9 +431,11 @@ int main() {
     std::printf("[ RUN  ] blip style the game rejects\n");
     testBlipStyleRejected();
     std::printf("[ RUN  ] scenario, Teleport movement\n");
-    runScenario(MovementMode::Teleport);
-    std::printf("[ RUN  ] scenario, Hybrid movement\n");
-    runScenario(MovementMode::Hybrid);
+    runScenario(MovementMode::Teleport, MountedTask::AnyMeans);
+    std::printf("[ RUN  ] scenario, Hybrid movement, riding task AnyMeans\n");
+    runScenario(MovementMode::Hybrid, MountedTask::AnyMeans);
+    std::printf("[ RUN  ] scenario, Hybrid movement, riding task on the horse\n");
+    runScenario(MovementMode::Hybrid, MountedTask::Horse);
     std::printf("\n%s (%d failed checks)\n", g_failures == 0 ? "ALL PASSED" : "FAILED", g_failures);
     return g_failures == 0 ? 0 : 1;
 }

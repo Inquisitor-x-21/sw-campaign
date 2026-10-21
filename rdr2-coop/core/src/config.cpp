@@ -136,6 +136,23 @@ Setter modeSetter(MovementMode& target) {
     };
 }
 
+Setter mountedTaskSetter(MountedTask& target) {
+    return [&target](const std::string& v, std::string& err) {
+        const std::string l = lower(v);
+        if (l == "rider") {
+            target = MountedTask::Rider;
+        } else if (l == "horse") {
+            target = MountedTask::Horse;
+        } else if (l == "anymeans") {
+            target = MountedTask::AnyMeans;
+        } else {
+            err = "expected AnyMeans, Horse or Rider";
+            return false;
+        }
+        return true;
+    };
+}
+
 Setter keySetter(int& target) {
     return [&target](const std::string& v, std::string& err) {
         const int vk = parseKeyName(v);
@@ -173,6 +190,7 @@ std::map<std::string, Setter> buildSetters(Config& c) {
     s["tuning.correctiongain"] = floatSetter(c.correctionGain, 0.f, 20.f);
     s["tuning.retaskms"] = intSetter(c.retaskMs, 50, 5000);
     s["tuning.lookaheadseconds"] = floatSetter(c.lookaheadSeconds, 0.f, 3.f);
+    s["tuning.mountedtask"] = mountedTaskSetter(c.mountedTask);
 
     s["display.overlay"] = boolSetter(c.overlay);
     s["display.blips"] = boolSetter(c.blips);
@@ -296,13 +314,24 @@ std::string keyName(int vk) {
 
 const char* toString(MovementMode m) { return m == MovementMode::Teleport ? "Teleport" : "Hybrid"; }
 
+const char* toString(MountedTask t) {
+    switch (t) {
+        case MountedTask::Rider: return "Rider";
+        case MountedTask::Horse: return "Horse";
+        case MountedTask::AnyMeans: return "AnyMeans";
+    }
+    return "?";
+}
+
 std::string describeConfig(const Config& c) {
     std::ostringstream os;
     os << "host port " << c.hostPort << ", join " << c.joinAddress << ":" << c.joinPort << ", max players "
        << c.maxPlayers << ", send " << c.sendRateHz << " Hz | name '" << c.name << "', model " << c.model
        << ", outfit " << c.outfit << " | interp " << c.interpDelayMs << " ms, extrapolate "
        << c.maxExtrapolationMs << " ms, teleport " << c.teleportDistance << " m, on foot "
-       << toString(c.onFootMovement) << ", mounted " << toString(c.mountedMovement) << " | keys host "
+       << toString(c.onFootMovement) << ", mounted " << toString(c.mountedMovement) << " | tuning correction "
+       << c.correctionStart << " m x" << c.correctionGain << ", retask " << c.retaskMs << " ms, lookahead "
+       << c.lookaheadSeconds << " s, mounted task " << toString(c.mountedTask) << " | keys host "
        << keyName(c.keyHost) << " join " << keyName(c.keyJoin) << " leave " << keyName(c.keyLeave) << " regroup "
        << keyName(c.keyRegroup) << " overlay " << keyName(c.keyOverlay) << " reload " << keyName(c.keyReload);
     return os.str();

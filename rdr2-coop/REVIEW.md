@@ -44,6 +44,32 @@ What could **not** be checked here: the real SDK `main.h` (dev-c.com is
 blocked from this container), the MSVC build, and anything about how the game
 reacts to a native. Those are in "Still to verify" below.
 
+## First in-game results (user's PC, VS 2026, Steam)
+
+Seen working: the build with Visual Studio 2026 and the real SDK, Script Hook
+loading the plugin, the overlay text, hosting, a bot joining, the stand-in
+spawning visible in its outfit, the map blip (no warning), mounting (no
+warning), standing-still accuracy (0.2 m), ping around 20 ms. The map pauses
+scripts (26.9 s in one log), and the keepalive kept the bot connected.
+
+Not working, then changed:
+- **Riding glided.** With `CorrectionGain = 0` (pushes off) the horse fell
+  25 m behind and was warped back again and again, so
+  `TASK_GO_STRAIGHT_TO_COORD` on the rider doesn't move the horse; only the
+  velocity pushes did. New `[Tuning] MountedTask`: `AnyMeans`
+  (`TASK_GO_TO_COORD_ANY_MEANS` on the rider, the default) or `Horse` (the walk
+  task on the horse), switchable with F6. The log says which one is in use.
+- **On foot lagged a steady ~5 m** behind a bot at 2 m/s, between the walk and
+  run speeds. The task now gets the exact speed through
+  `_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO` and `SET_PED_DESIRED_MOVE_BLEND_RATIO`,
+  plus a little catch-up, and at speed it is re-aimed about twice a second
+  instead of every few frames. The log prints what the game answers for a few
+  speeds, so a bad answer shows up there (a table of typical gait speeds is
+  the fallback).
+- **The first `build.bat` failed** with "Could not find the compiler specified
+  in the environment variable RC: 1" (see item 8), and the double-click
+  window closed at once. Both fixed.
+
 ## Fixed
 
 Each plugin fix has a regression test. Against the original plugin code, the

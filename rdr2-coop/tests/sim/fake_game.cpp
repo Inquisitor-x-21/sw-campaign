@@ -77,6 +77,25 @@ Ent* ent(int id) {
     return it == w.ents.end() ? nullptr : &it->second;
 }
 
+// Speeds (m/s) at move blend 0, 1, 2 and 3: still, walk, run, sprint/gallop.
+const float kFootSpeed[] = {0.f, 1.5f, 3.5f, 6.0f};
+const float kHorseSpeed[] = {0.f, 2.0f, 6.0f, 12.0f};
+
+float speedForBlend(bool horse, float blend) {
+    const float* s = horse ? kHorseSpeed : kFootSpeed;
+    blend = std::clamp(blend, 0.f, 3.f);
+    const int i = std::min(2, static_cast<int>(blend));
+    return s[i] + (s[i + 1] - s[i]) * (blend - static_cast<float>(i));
+}
+
+float blendForSpeed(bool horse, float speed) {
+    const float* s = horse ? kHorseSpeed : kFootSpeed;
+    for (int i = 1; i < 4; ++i) {
+        if (speed <= s[i]) return static_cast<float>(i - 1) + (speed - s[i - 1]) / (s[i] - s[i - 1]);
+    }
+    return 3.f;
+}
+
 void dismount(Ent& rider) {
     if (Ent* m = ent(rider.mount)) m->rider = 0;
     rider.mount = 0;
@@ -192,11 +211,33 @@ void dispatch() {
             I(8);
             if (e != nullptr) {
                 e->hasTask = true;
+                e->taskAnyMeans = false;
                 e->taskTarget = {F(1), F(2), F(3)};
                 e->taskBlend = F(4);
                 e->taskFinalHeading = F(6);
                 e->taskRadius = F(7);
             }
+            break;
+        }
+        case TASK::TASK_GO_TO_COORD_ANY_MEANS_HASH: {
+            Ent* e = ent(I(0));
+            F(8);
+            if (e != nullptr) {
+                e->hasTask = true;
+                e->taskAnyMeans = true;
+                e->taskTarget = {F(1), F(2), F(3)};
+                e->taskBlend = F(4);
+                e->taskFinalHeading = e->heading;
+                e->taskRadius = 0.5f;
+            }
+            break;
+        }
+        case TASK::SET_PED_DESIRED_MOVE_BLEND_RATIO_HASH:
+            if (Ent* e = ent(I(0))) e->taskBlend = F(1);
+            break;
+        case PED::_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO_HASH: {
+            Ent* e = ent(I(0));
+            retFloat(e != nullptr ? blendForSpeed(e->isHorse, F(1)) : 0.f);
             break;
         }
         case TASK::TASK_STAND_STILL_HASH: if (Ent* e = ent(I(0))) e->hasTask = false; break;
@@ -260,12 +301,7 @@ void dispatch() {
     }
 }
 
-float taskSpeed(const Ent& mover, float blend) {
-    const int gait = std::clamp(static_cast<int>(std::lround(blend)), 1, 3);
-    static const float foot[] = {0.f, 1.5f, 3.5f, 6.0f};
-    static const float horse[] = {0.f, 2.0f, 6.0f, 12.0f};
-    return mover.isHorse ? horse[gait] : foot[gait];
-}
+float taskSpeed(const Ent& mover, float blend) { return speedForBlend(mover.isHorse, std::max(1.f, blend)); }
 
 }  // namespace
 
@@ -304,11 +340,13 @@ void step(float dt) {
         }
     }
     // Movers: anything not ridden, moved by its own task or a rider's task.
+    // As in the game: a rider's TASK_GO_STRAIGHT_TO_COORD doesn't move the
+    // horse; TASK_GO_TO_COORD_ANY_MEANS on the rider, or a task on the horse, does.
     for (auto& kv : w.ents) {
         Ent& e = kv.second;
         if (e.id == 1 || e.mount != 0) continue;  // the local player is moved by the test; riders follow mounts
         Ent* rider = ent(e.rider);
-        Ent* tasked = (rider != nullptr && rider->hasTask) ? rider : (e.hasTask ? &e : nullptr);
+        Ent* tasked = (rider != nullptr && rider->hasTask && rider->taskAnyMeans) ? rider : (e.hasTask ? &e : nullptr);
         if (e.velOverride) {
             e.vel = e.overrideVel;
             e.pos = e.pos + e.vel * dt;

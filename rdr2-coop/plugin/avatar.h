@@ -19,6 +19,7 @@ struct AvatarTuning {
     float correctionGain = 1.5f;
     uint32_t retaskMs = 400;
     float lookahead = 0.5f;
+    coop::MountedTask mountedTask = coop::MountedTask::AnyMeans;
     bool blips = true;
     std::string blipStyle = "BLIP_STYLE_MP_PLAYER";
     std::string fallbackHorse = "a_c_horse_kentuckysaddle_black";
@@ -58,6 +59,14 @@ public:
     SyncStats& stats() { return stats_; }
 
 private:
+    // What drive() moves, and how.
+    struct Mover {
+        rdr::Entity entity;  // has to end up at the target (the horse when riding)
+        rdr::Ped taskPed;    // gets the movement task
+        bool isHorse;        // entity is a horse (for speed and gait)
+        bool anyMeans;       // TASK_GO_TO_COORD_ANY_MEANS instead of TASK_GO_STRAIGHT_TO_COORD
+    };
+
     struct Drive {
         coop::MoveState lastMove = coop::MoveState::Idle;
         coop::Vec3 lastTaskTarget;
@@ -70,8 +79,9 @@ private:
     void dismountIfNeeded(const coop::PlayerState& s);
     void maybeDropIdleHorse(int64_t nowMs);
     void noteSeatChange(bool retrying, const char* problem);
-    void drive(rdr::Entity entity, rdr::Ped taskPed, coop::Vec3 target, coop::Vec3 vel, float heading,
-               coop::MoveState move, coop::MovementMode mode, Drive& d, int64_t nowMs, const AvatarTuning& tuning);
+    void logMoveBlendOnce(const Mover& m);
+    void drive(const Mover& m, coop::Vec3 target, coop::Vec3 vel, float heading, coop::MoveState move,
+               coop::MovementMode mode, Drive& d, int64_t nowMs, const AvatarTuning& tuning);
 
     coop::PlayerInfo info_;
     uint32_t riderModel_ = 0;
@@ -90,6 +100,10 @@ private:
     int64_t horseRetryAt_ = 0;
     int64_t horseIdleSince_ = -1;
     uint32_t seatRetries_ = 0;
+    bool loggedFootBlend_ = false;
+    bool loggedHorseBlend_ = false;
+    bool loggedMountedTask_ = false;
+    coop::MountedTask mountedTask_ = coop::MountedTask::AnyMeans;
 
     Drive footDrive_;
     Drive horseDrive_;

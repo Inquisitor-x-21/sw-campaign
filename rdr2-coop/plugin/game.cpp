@@ -1,5 +1,6 @@
 #include "game.h"
 
+#include <cmath>
 #include <cstdlib>
 
 #include "coop/interp.h"
@@ -154,6 +155,28 @@ bool entityHasModel(Entity entity, uint32_t modelHash) {
 Vec3 entityPos(Entity entity) { return toVec(ENTITY::GET_ENTITY_COORDS(entity, TRUE, TRUE)); }
 
 float entityHeading(Entity entity) { return coop::wrapDegrees(ENTITY::GET_ENTITY_HEADING(entity)); }
+
+float moveBlendForSpeed(Ped mover, float speed, bool isHorse) {
+    if (speed < 0.1f) return 0.f;
+    const float fromGame = PED::_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO(mover, speed);
+    if (std::isfinite(fromGame) && fromGame > 0.f && fromGame <= 3.f) return fromGame;
+    // Typical speeds (m/s) at blend 0, 1, 2 and 3.
+    static const float foot[] = {0.f, 1.4f, 3.6f, 6.2f};
+    static const float horse[] = {0.f, 1.8f, 5.5f, 11.f};
+    const float* s = isHorse ? horse : foot;
+    for (int i = 1; i < 4; ++i) {
+        if (speed <= s[i]) return static_cast<float>(i - 1) + (speed - s[i - 1]) / (s[i] - s[i - 1]);
+    }
+    return 3.f;
+}
+
+void taskGoTo(Ped ped, Vec3 to, float moveBlend, float heading, float radius, bool anyMeans) {
+    if (anyMeans) {
+        TASK::TASK_GO_TO_COORD_ANY_MEANS(ped, to.x, to.y, to.z, moveBlend, 0, FALSE, 0, -1.f);
+    } else {
+        TASK::TASK_GO_STRAIGHT_TO_COORD(ped, to.x, to.y, to.z, moveBlend, -1, heading, radius, 0);
+    }
+}
 
 int addBlip(Entity entity, const std::string& style, const std::string& name) {
     const Blip blip = MAP::BLIP_ADD_FOR_ENTITY(coop::joaat(style), entity);

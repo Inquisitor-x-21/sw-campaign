@@ -18,6 +18,10 @@ namespace {
 constexpr const char* kFallbackRider = "g_m_m_uniduster_01";
 constexpr int64_t kHorseIdleDespawnMs = 120000;
 constexpr float kHorseLeftBehindDistance = 150.f;
+// Hybrid: extra speed per metre of falling behind (or ahead), and its limits.
+constexpr float kCatchUpPerMetre = 0.5f;
+constexpr float kMaxCatchUp = 3.f;
+constexpr float kMaxSlowDown = 1.5f;
 
 // Outfit preset counts from the community ped list (femga/rdr3_discoveries).
 int clampOutfit(const std::string& model, int outfit) {
@@ -40,15 +44,6 @@ int clampOutfit(const std::string& model, int outfit) {
     return outfit;
 }
 
-float moveBlend(MoveState m) {
-    switch (m) {
-        case MoveState::Walk: return 1.f;
-        case MoveState::Run: return 2.f;
-        case MoveState::Sprint: return 3.f;
-        default: return 1.f;
-    }
-}
-
 }  // namespace
 
 AvatarTuning tuningFromConfig(const coop::Config& cfg) {
@@ -60,6 +55,7 @@ AvatarTuning tuningFromConfig(const coop::Config& cfg) {
     t.correctionGain = cfg.correctionGain;
     t.retaskMs = cfg.retaskMs;
     t.lookahead = cfg.lookaheadSeconds;
+    t.mountedTask = cfg.mountedTask;
     t.blips = cfg.blips;
     t.blipStyle = cfg.blipStyle;
     t.fallbackHorse = cfg.fallbackHorse;
@@ -216,6 +212,23 @@ void RemoteAvatar::noteSeatChange(bool retrying, const char* problem) {
     }
 }
 
+// Once per avatar and gait type, log what the game says about speed: whether
+// _COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO answers sensibly decides how well
+// stand-ins match speeds, and nobody can see that from outside the game.
+void RemoteAvatar::logMoveBlendOnce(const Mover& m) {
+    bool& done = m.isHorse ? loggedHorseBlend_ : loggedFootBlend_;
+    if (done) return;
+    done = true;
+    const float fast = m.isHorse ? 11.f : 6.f;
+    LOG_INFO("%s %s: move blend from the game for 1.5 / 3.5 / %.0f m/s = %.2f / %.2f / %.2f (used: %.2f / %.2f / %.2f)",
+             info_.name.c_str(), m.isHorse ? "horse" : "on foot", fast,
+             PED::_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO(m.entity, 1.5f),
+             PED::_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO(m.entity, 3.5f),
+             PED::_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO(m.entity, fast),
+             game::moveBlendForSpeed(m.entity, 1.5f, m.isHorse), game::moveBlendForSpeed(m.entity, 3.5f, m.isHorse),
+             game::moveBlendForSpeed(m.entity, fast, m.isHorse));
+}
+
 void RemoteAvatar::forgetEntities() {
     ped_ = 0;
     horse_ = 0;
@@ -269,12 +282,19 @@ void RemoteAvatar::update(const coop::SampleResult& sample, int64_t now, const A
                 horseDrive_ = {};
             }
             noteSeatChange(!seated, "SET_PED_ONTO_MOUNT didn't seat the rider");
-            drive(horse_, ped_, s.mountPos, s.mountVel, s.mountHeading, s.move, tuning.mounted, horseDrive_, now,
-                  tuning);
+            if (!loggedMountedTask_ || tuning.mountedTask != mountedTask_) {
+                LOG_INFO("%s rides with MountedTask = %s", info_.name.c_str(), coop::toString(tuning.mountedTask));
+                loggedMountedTask_ = true;
+                mountedTask_ = tuning.mountedTask;
+                horseDrive_ = {};  // task the new ped right away
+            }
+            const Mover horse{horse_, tuning.mountedTask == coop::MountedTask::Horse ? horse_ : ped_, true,
+                              tuning.mountedTask == coop::MountedTask::AnyMeans};
+            drive(horse, s.mountPos, s.mountVel, s.mountHeading, s.move, tuning.mounted, horseDrive_, now, tuning);
         } else {
             // Horse still loading: keep the rider where the horse will appear.
-            drive(ped_, ped_, s.mountPos, s.mountVel, s.mountHeading, s.move, MovementMode::Teleport, footDrive_,
-                  now, tuning);
+            drive(Mover{ped_, ped_, false, false}, s.mountPos, s.mountVel, s.mountHeading, s.move,
+                  MovementMode::Teleport, footDrive_, now, tuning);
         }
         return;
     }
@@ -282,11 +302,12 @@ void RemoteAvatar::update(const coop::SampleResult& sample, int64_t now, const A
     dismountIfNeeded(s);
     maybeDropIdleHorse(now);
     lastTarget_ = s.pos;
-    drive(ped_, ped_, s.pos, s.vel, s.heading, s.move, tuning.onFoot, footDrive_, now, tuning);
+    drive(Mover{ped_, ped_, false, false}, s.pos, s.vel, s.heading, s.move, tuning.onFoot, footDrive_, now, tuning);
 }
 
-void RemoteAvatar::drive(Entity entity, Ped taskPed, Vec3 target, Vec3 vel, float heading, MoveState move,
-                         MovementMode mode, Drive& d, int64_t now, const AvatarTuning& t) {
+void RemoteAvatar::drive(const Mover& m, Vec3 target, Vec3 vel, float heading, MoveState move, MovementMode mode,
+                         Drive& d, int64_t now, const AvatarTuning& t) {
+    const Entity entity = m.entity;
     const Vec3 current = game::entityPos(entity);
     const Vec3 error = target - current;
     const float dist = coop::length(error);
@@ -309,14 +330,28 @@ void RemoteAvatar::drive(Entity entity, Ped taskPed, Vec3 target, Vec3 vel, floa
     // Hybrid: a movement task gives real walk / run / ride animations; a
     // velocity nudge pulls the stand-in back when it drifts off the real path.
     if (move != MoveState::Idle) {
+        logMoveBlendOnce(m);
+        // The remote player's exact speed, not just walk / run / sprint, plus
+        // a little more (or less) to close a gap along the way they're going.
+        const float speed = coop::length2d(vel);
+        const Vec3 dir = speed > 0.1f ? vel * (1.f / speed) : Vec3{};
+        const float behind = error.x * dir.x + error.y * dir.y;
+        const float catchUp = std::clamp(behind * kCatchUpPerMetre, -kMaxSlowDown, kMaxCatchUp);
+        const float blend = game::moveBlendForSpeed(entity, std::max(0.f, speed + catchUp), m.isHorse);
+
         const Vec3 aim = target + vel * t.lookahead;
         const bool stale = now - d.lastTaskAt > static_cast<int64_t>(t.retaskMs);
-        if (!d.tasked || move != d.lastMove || coop::distance(aim, d.lastTaskTarget) > 1.5f || stale) {
-            TASK::TASK_GO_STRAIGHT_TO_COORD(taskPed, aim.x, aim.y, aim.z, moveBlend(move), -1, heading, 0.5f, 0);
+        // Restarting a task interrupts its animation, so at speed only re-aim
+        // about twice a second; speed changes go through the desired blend.
+        const float retaskDistance = std::max(1.5f, speed * 0.5f);
+        if (!d.tasked || move != d.lastMove || coop::distance(aim, d.lastTaskTarget) > retaskDistance || stale) {
+            game::taskGoTo(m.taskPed, aim, blend, heading, 0.5f, m.anyMeans);
             d.tasked = true;
             d.lastMove = move;
             d.lastTaskTarget = aim;
             d.lastTaskAt = now;
+        } else {
+            TASK::SET_PED_DESIRED_MOVE_BLEND_RATIO(m.taskPed, blend);
         }
         if (dist > t.correctionStart) {
             const Vec3 nudge = vel + error * t.correctionGain;
@@ -329,7 +364,7 @@ void RemoteAvatar::drive(Entity entity, Ped taskPed, Vec3 target, Vec3 vel, floa
     const bool justStopped = !d.tasked || d.lastMove != MoveState::Idle;
     const bool drifted = dist > 0.75f && now - d.lastTaskAt > static_cast<int64_t>(t.retaskMs);
     if (justStopped || drifted) {
-        TASK::TASK_GO_STRAIGHT_TO_COORD(taskPed, target.x, target.y, target.z, 1.f, -1, heading, 0.25f, 0);
+        game::taskGoTo(m.taskPed, target, 1.f, heading, 0.25f, m.anyMeans);
         d.tasked = true;
         d.lastMove = MoveState::Idle;
         d.lastTaskTarget = target;

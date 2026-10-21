@@ -125,6 +125,9 @@ namespace PED {
     inline void SET_RELATIONSHIP_BETWEEN_GROUPS(int relationship, Hash group1, Hash group2) { return invoke<void>(SET_RELATIONSHIP_BETWEEN_GROUPS_HASH, relationship, group1, group2); }
     constexpr uint64_t SET_PED_RELATIONSHIP_GROUP_HASH_HASH = 0xC80A74AC829DDD92ull;
     inline void SET_PED_RELATIONSHIP_GROUP_HASH(Ped ped, Hash relationshipGroup) { return invoke<void>(SET_PED_RELATIONSHIP_GROUP_HASH_HASH, ped, relationshipGroup); }
+    constexpr uint64_t _COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO_HASH = 0xCA95924C893A0C91ull;
+    /// Returns ped move blend ratio corresponding to the specified speed.
+    inline float _COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO(Ped ped, float speed) { return invoke<float>(_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO_HASH, ped, speed); }
 } // namespace PED
 
 namespace PLAYER {
@@ -161,6 +164,10 @@ namespace TASK {
     constexpr uint64_t TASK_GO_STRAIGHT_TO_COORD_HASH = 0xD76B57B44F1E6F8Bull;
     /// Go to coords wihtout using navmesh, if timeBeforeTeleport is -1 then it never teleports p8 is 1 or 0 still unknown.
     inline void TASK_GO_STRAIGHT_TO_COORD(Ped ped, float x, float y, float z, float moveBlendSpeedY, int timeBeforeTeleport, float finalHeading, float targetRadius, int p8) { return invoke<void>(TASK_GO_STRAIGHT_TO_COORD_HASH, ped, x, y, z, moveBlendSpeedY, timeBeforeTeleport, finalHeading, targetRadius, p8); }
+    constexpr uint64_t TASK_GO_TO_COORD_ANY_MEANS_HASH = 0x5BC448CB78FA3E88ull;
+    inline void TASK_GO_TO_COORD_ANY_MEANS(Ped ped, float x, float y, float z, float speed, Entity entity, BOOL p6, int walkingStyle, float p8) { return invoke<void>(TASK_GO_TO_COORD_ANY_MEANS_HASH, ped, x, y, z, speed, entity, p6, walkingStyle, p8); }
+    constexpr uint64_t SET_PED_DESIRED_MOVE_BLEND_RATIO_HASH = 0x1E982AC8716912C5ull;
+    inline void SET_PED_DESIRED_MOVE_BLEND_RATIO(Ped ped, float p1) { return invoke<void>(SET_PED_DESIRED_MOVE_BLEND_RATIO_HASH, ped, p1); }
     constexpr uint64_t TASK_STAND_STILL_HASH = 0x919BE13EED931959ull;
     /// Makes the specified ped stand still for (time) milliseconds.
     inline void TASK_STAND_STILL(Ped ped, int time) { return invoke<void>(TASK_STAND_STILL_HASH, ped, time); }
