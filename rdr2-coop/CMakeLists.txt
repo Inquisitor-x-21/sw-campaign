@@ -111,7 +111,8 @@ elseif(WIN32)
         target_link_libraries(RDR2Coop PRIVATE coop_core ws2_32 "${RDR2COOP_SDK_DIR}/lib/ScriptHookRDR2.lib")
         add_custom_command(TARGET RDR2Coop POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_SOURCE_DIR}/config/RDR2Coop.ini" "$<TARGET_FILE_DIR:RDR2Coop>/RDR2Coop.ini")
+                "${CMAKE_SOURCE_DIR}/config/RDR2Coop.ini" "$<TARGET_FILE_DIR:RDR2Coop>/RDR2Coop.ini"
+            VERBATIM)  # paths like "rdr2-coop (1)" or "C:/Users/First Last" stay one argument
     else()
         message(WARNING
             "Script Hook RDR2 SDK not found in ${RDR2COOP_SDK_DIR}. Building the bots and tests only.\n"

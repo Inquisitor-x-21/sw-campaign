@@ -24,6 +24,7 @@ if not exist "%GAME%\ScriptHookRDR2.dll" (
     echo WARNING: ScriptHookRDR2.dll is not in the game folder. Install Script Hook RDR2
     echo          ^(ScriptHookRDR2.dll and dinput8.dll^) or the plugin will not load.
 )
+if exist "%GAME%\ScriptHookRDR2.dll" if not exist "%GAME%\dinput8.dll" echo WARNING: dinput8.dll is not in the game folder. It is Script Hook's .asi loader; without it, or another .asi loader, RDR2Coop.asi will not load.
 copy /y "build\Release\RDR2Coop.asi" "%GAME%\" >nul || goto :fail
 if exist "%GAME%\RDR2Coop.ini" (
     echo Kept your existing RDR2Coop.ini.

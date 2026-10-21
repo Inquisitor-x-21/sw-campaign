@@ -28,14 +28,22 @@ set "GENERATOR_ARG="
 if "%VSMAJOR%"=="17" set GENERATOR_ARG=-G "Visual Studio 17 2022"
 echo Using Visual Studio %VSMAJOR% at %VSPATH%
 
+set "SDKDIR=sdk"
 if exist "sdk\inc\main.h" if exist "sdk\lib\ScriptHookRDR2.lib" goto :configure
+rem A common slip: the zip's own folder ends up between sdk\ and inc\. Use it there.
+for /d %%d in (sdk\*) do if exist "%%~d\inc\main.h" if exist "%%~d\lib\ScriptHookRDR2.lib" set "SDKDIR=%%~d"
+if not "%SDKDIR%"=="sdk" echo Using the Script Hook RDR2 SDK in "%SDKDIR%"
+if not "%SDKDIR%"=="sdk" goto :configure
 echo.
 echo NOTE: Script Hook RDR2 SDK not found, so only the test tools will be built.
 echo       Extract the SDK so that sdk\inc\main.h and sdk\lib\ScriptHookRDR2.lib exist.
 echo.
 
 :configure
-cmake -S . -B build %GENERATOR_ARG% -A x64
+rem Absolute, with forward slashes: CMake keeps a relative -D path as given.
+set "SDKPATH=%CD%\%SDKDIR%"
+set "SDKPATH=%SDKPATH:\=/%"
+cmake -S . -B build %GENERATOR_ARG% -A x64 "-DRDR2COOP_SDK_DIR:PATH=%SDKPATH%"
 if errorlevel 1 goto :fail_configure
 cmake --build build --config Release
 if errorlevel 1 goto :fail
