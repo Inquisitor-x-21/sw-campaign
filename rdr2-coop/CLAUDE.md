@@ -88,10 +88,14 @@ give the numbers. Order (from README "First test in game"):
 
 1. `coopbot selftest` (no game).
 2. User hosts (F7); `coopbot join --bots 1 --pattern still` - one outlaw should stand nearby.
+   No text on screen? A new log file still means the plugin loaded.
 3. `coopbot join --bots 3`, then `--mounted --speed 9`.
 4. If movement looks wrong: `OnFootMovement` / `MountedMovement = Teleport`,
    user presses F6 (reload). In sync then = the movement tasks need tuning.
-5. `--churn 10` for drop-in/drop-out, then a second instance or a friend.
+5. Map open for 15 s, then fast travel, with bots connected: they must stay.
+   The log's `the game didn't run scripts for N s` lines show which screens
+   pause scripts.
+6. `--churn 10` for drop-in/drop-out, then a second instance or a friend.
 
 Logs: `<game folder>\RDR2Coop_logs\*.log`, newest per launch (falls back to
 `%LOCALAPPDATA%\RDR2Coop\logs` if the game folder is read-only). Every 10 s:

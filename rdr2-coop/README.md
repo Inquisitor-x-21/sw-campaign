@@ -49,7 +49,11 @@ Back up your saves first: `Documents\Rockstar Games\Red Dead Redemption 2\Profil
 - Over the internet: use a VPN like Tailscale or ZeroTier and join the host's
   VPN address (easiest), or forward UDP 7777 on the host's router.
 - Windows will ask whether RDR2 may use the network the first time you host:
-  allow it.
+  allow it. In fullscreen the prompt can open behind the game; if hosting seems
+  to do nothing for friends, Alt+Tab and look for it. (Bots on the same PC
+  don't need it.)
+- Opening the map or pause menu, or a loading screen, doesn't drop anyone:
+  the plugin keeps the connection alive while the game pauses its scripts.
 - Story progress, money and missions happen in the **host's** game. Joiners
   should just ride along, not start missions of their own.
 
@@ -75,15 +79,19 @@ focused window.
 Do these in order; each one isolates a different part.
 
 1. `coopbot selftest` - networking works on Windows.
-2. Load a save, press F7, run `coopbot join --bots 1 --pattern still`.
+2. Start the game and load a save. A new log in `RDR2Coop_logs\` (see below)
+   means the plugin loaded, even if no text shows on screen.
+3. Press F7, run `coopbot join --bots 1 --pattern still`.
    **One outlaw should stand still near you.** If not: check the log (below).
-3. `--pattern orbit` on foot, then `--mounted --speed 9`. Watch whether they
+4. `--pattern orbit` on foot, then `--mounted --speed 9`. Watch whether they
    walk/ride with animation or slide. If movement looks broken, set
    `OnFootMovement = Teleport` / `MountedMovement = Teleport` and press F6:
    that mode always stays in sync (no animation) and tells us whether the
    problem is the movement tasks or something else.
-4. `--bots 3 --churn 10` for joins and leaves.
-5. Real second player (second instance or a friend).
+5. With bots connected, open the map for 15 s, then fast travel. The bots
+   should still be there.
+6. `--bots 3 --churn 10` for joins and leaves.
+7. Real second player (second instance or a friend).
 
 Each game launch writes a log to `RDR2Coop_logs\` in the game folder (or to
 `%LOCALAPPDATA%\RDR2Coop\logs` if the game folder is read-only, as under
@@ -138,9 +146,12 @@ the stand-ins and for the main loop).
 
 ## Troubleshooting
 
-- **Nothing on screen in game**: is `ScriptHookRDR2.dll` + `dinput8.dll` in
-  the game folder and up to date for your game version? Script Hook shows its
-  own warning on start if it's outdated.
+- **Nothing on screen in game**: first look in `RDR2Coop_logs\` (or
+  `%LOCALAPPDATA%\RDR2Coop\logs`). A new log there means the plugin runs and
+  only the on-screen text failed. No new log means it never loaded: are
+  `ScriptHookRDR2.dll` + `dinput8.dll` in the game folder and up to date for
+  your game version? Script Hook shows its own warning on start if it's
+  outdated.
 - **"Couldn't host: couldn't open UDP port"**: something else uses 7777
   (another instance already hosting?). Change `HostPort`.
 - **Join times out**: wrong `JoinAddress`, host not hosting yet, or a firewall.

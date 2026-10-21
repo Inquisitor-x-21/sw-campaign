@@ -1,8 +1,8 @@
 # Stage 1 review (before the first build on Windows)
 
 Done in a Linux container without Windows, the game or the Script Hook SDK,
-in three passes: a first review, then two re-checks (a fresh line-by-line read,
-then a tool-driven pass). What could be checked here:
+in passes: a first review, two re-checks (a fresh line-by-line read, then a
+tool-driven pass), and a "smooth first try" pass. What could be checked here:
 
 - Linux build with all tests: `core_tests` (18), `plugin_sim_tests`, the new
   `plugin_script_tests` (the main loop, see below) and `coopbot selftest`. All
@@ -21,6 +21,13 @@ then a tool-driven pass). What could be checked here:
   judge two things: its `cmd` runs the right side of `||` even after success
   (a Wine bug), and it leaves `%cmdcmdline%` empty, so the double-click check
   is per Windows' documented behaviour only.
+- The real plugin linked as `RDR2Coop.asi` (MinGW, against a stand-in
+  `ScriptHookRDR2` import library) from a folder with spaces and parentheses.
+  Under Wine, a small host program loaded it the way the game does, with a
+  stand-in `ScriptHookRDR2.dll` running the script on a fiber like Script Hook
+  and answering natives from the simulated game. It registered, ticked, drew
+  its text, wrote its log next to the `.asi`, read the ini without warnings,
+  never called a native off the script thread, and exited cleanly.
 - `natives_gen.h` regenerated from today's alloc8or database: byte-identical,
   so every hash and signature is current.
 - Line-by-line reads of `plugin/`, `core/`, `coopbot`, `build.bat`,
@@ -111,20 +118,35 @@ new tests fail 20 checks (14 in `plugin_sim_tests`, 6 in
     style doesn't exist in story mode), it was called again every frame with
     nothing in the log. It's now tried once per spawn or setting change, and
     the log says to try another `BlipStyle`.
+11. **Disconnects while the game pauses scripts** (`script.cpp`, "first try"
+    pass). ENet was only serviced from the script tick. If the pause menu, the
+    map or a loading screen stops scripts for more than 3-8 s, everyone would
+    time out. A background thread now services the session whenever the
+    script hasn't ticked for 250 ms. It never calls natives, and it shares a
+    mutex with the tick, so the two never touch the session at once. The log
+    says how long scripts were paused (`the game didn't run scripts for N s`).
+    The new test pauses the plugin for 9 s: with the thread the bot stays,
+    without it the bot is dropped. ThreadSanitizer is clean.
+12. **The `.asi` build failed in folders with parentheses** (`CMakeLists.txt`,
+    found by the link test above). The post-build step that copies
+    `RDR2Coop.ini` next to the `.asi` lacked `VERBATIM`, so paths like
+    `rdr2-coop (1)` weren't escaped for the shell and the build stopped at
+    the very end. Without `VERBATIM`, CMake gives no such protection on any
+    platform, which also puts `C:\Users\First Last` paths at risk.
+13. **Setup slips caught by the scripts.** `build.bat` now finds the SDK when
+    the zip was extracted one folder too deep (`sdk\<zip name>\inc\main.h`)
+    and says which folder it used. It always passes CMake an absolute SDK
+    path. `install.bat` warns when `dinput8.dll`, Script Hook's `.asi`
+    loader, is missing.
 
 `core/src/session.cpp`: no bugs found. Join, leave, relay, reject, timeouts and
 id reuse all hold up, and the loopback tests cover them well.
 
 ## Still to verify on the Windows PC (in this order)
 
-1. **Does the session survive the pause menu, the map and loading screens?**
-   ENet is only serviced from our script tick. If the game stops ticking
-   scripts while paused (story mode pauses on the map and pause menu) or during
-   fast travel or save loads, peers time out after 3-8 s
-   (`peerTimeoutMin/MaxMs`). Test: host with bots, open the map for 15 s, then
-   fast travel. If players drop, the fix is to service ENet from a background
-   thread (with Session behind a mutex), or at least to raise the timeouts.
-   This is the biggest open risk.
+1. **Pause menu, map and loading screens** (fixed in item 11, still worth
+   seeing once). Host with bots, open the map for 15 s, then fast travel. The
+   bots should stay, and the log shows how long each screen paused scripts.
 2. **Real SDK, MSVC, and the batch files on real Windows.** `native_invoker.h` and `plugin.h` use only
    `scriptRegister`, `scriptUnregister(HMODULE)`, `scriptWait`, `nativeInit`,
    `nativePush64` and `nativeCall`. The SDK's `main.h` is expected to declare
