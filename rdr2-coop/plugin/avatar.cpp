@@ -22,6 +22,9 @@ constexpr float kHorseLeftBehindDistance = 150.f;
 constexpr float kCatchUpPerMetre = 0.5f;
 constexpr float kMaxCatchUp = 6.f;
 constexpr float kMaxSlowDown = 1.5f;
+// At the top gait and still behind, animate this much faster (the game's max).
+constexpr float kMaxMoveRate = 1.15f;
+constexpr float kFullGait = 2.95f;
 
 // Outfit preset counts from the community ped list (femga/rdr3_discoveries).
 int clampOutfit(const std::string& model, int outfit) {
@@ -181,10 +184,11 @@ bool RemoteAvatar::ensureHorse(const PlayerState& s, int64_t now, const AvatarTu
         return false;
     }
     game::prepareAvatarPed(horse_, -1, true);
+    const game::HorseBoost boost = game::boostHorse(horse_);
     horseDrive_ = {};
     status_ = "ok";
-    LOG_INFO("spawned horse 0x%08X for %s%s", horseModel_, info_.name.c_str(),
-             horseModel_ == want ? "" : " (fallback breed)");
+    LOG_INFO("spawned horse 0x%08X for %s%s (speed rank %d -> %d of %d)", horseModel_, info_.name.c_str(),
+             horseModel_ == want ? "" : " (fallback breed)", boost.speedBefore, boost.speedAfter, boost.speedMax);
     return true;
 }
 
@@ -212,27 +216,33 @@ void RemoteAvatar::noteSeatChange(bool retrying, const char* problem) {
     }
 }
 
-// Once per avatar and gait type: does the game's speed-to-blend answer vary
-// with speed? In game it did for horses, but on foot it said 2.0 (run) for any
-// speed, which made walking stand-ins run. Logged, since nobody can see this
-// from outside the game.
-void RemoteAvatar::checkMoveBlendOnce(const Mover& m) {
-    bool& checked = m.isHorse ? checkedHorseBlend_ : checkedFootBlend_;
-    if (checked) return;
-    checked = true;
+// Once per avatar and gait type: does the game's speed-to-blend answer follow
+// speed? Asked the moment a ped spawned, it said 2.0 (run) for any speed on
+// foot, so an unusable answer is asked again a few times, a second apart,
+// before falling back to typical gait speeds. Logged: nobody can see this from
+// outside the game.
+void RemoteAvatar::checkMoveBlendOnce(const Mover& m, int64_t now) {
+    constexpr int kTries = 5;
+    BlendCheck& c = m.isHorse ? horseBlend_ : footBlend_;
+    if (c.done || now < c.nextAt) return;
     const float fast = m.isHorse ? 11.f : 6.f;
     const float slow = PED::_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO(m.entity, 1.5f);
     const float mid = PED::_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO(m.entity, 3.5f);
     const float high = PED::_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO(m.entity, fast);
     const bool usable = std::isfinite(slow) && std::isfinite(high) && slow > 0.f && high <= 3.f && high - slow > 0.5f;
-    (m.isHorse ? gameHorseBlend_ : gameFootBlend_) = usable;
+    if (!usable && ++c.tries < kTries) {
+        c.nextAt = now + 1000;
+        return;
+    }
+    c.done = true;
+    c.useGame = usable;
     LOG_INFO("%s %s: move blend from the game for 1.5 / 3.5 / %.0f m/s = %.2f / %.2f / %.2f; %s", info_.name.c_str(),
              m.isHorse ? "horse" : "on foot", fast, slow, mid, high,
              usable ? "using these" : "they don't follow speed, using typical gait speeds instead");
 }
 
 float RemoteAvatar::moveBlend(const Mover& m, float speed) const {
-    return game::moveBlendForSpeed(m.entity, speed, m.isHorse, m.isHorse ? gameHorseBlend_ : gameFootBlend_);
+    return game::moveBlendForSpeed(m.entity, speed, m.isHorse, (m.isHorse ? horseBlend_ : footBlend_).useGame);
 }
 
 void RemoteAvatar::forgetEntities() {
@@ -319,6 +329,8 @@ void RemoteAvatar::drive(const Mover& m, Vec3 target, Vec3 vel, float heading, M
     const float dist = coop::length(error);
     stats_.errorSum += dist;
     stats_.errorMax = std::max(stats_.errorMax, dist);
+    stats_.theirSpeedSum += coop::length2d(vel);
+    stats_.ourSpeedSum += game::entitySpeed2d(entity);
     ++stats_.samples;
 
     if (mode == MovementMode::Teleport || dist > t.teleportDistance) {
@@ -336,7 +348,7 @@ void RemoteAvatar::drive(const Mover& m, Vec3 target, Vec3 vel, float heading, M
     // Hybrid: a movement task gives real walk / run / ride animations; a
     // velocity nudge pulls the stand-in back when it drifts off the real path.
     if (move != MoveState::Idle) {
-        checkMoveBlendOnce(m);
+        checkMoveBlendOnce(m, now);
         // The remote player's exact speed, not just walk / run / sprint, plus
         // a little more (or less) to close a gap along the way they're going.
         const float speed = coop::length2d(vel);
@@ -344,6 +356,11 @@ void RemoteAvatar::drive(const Mover& m, Vec3 target, Vec3 vel, float heading, M
         const float behind = error.x * dir.x + error.y * dir.y;
         const float catchUp = std::clamp(behind * kCatchUpPerMetre, -kMaxSlowDown, kMaxCatchUp);
         const float blend = moveBlend(m, std::max(0.f, speed + catchUp));
+        // Already at the top gait and still behind: a stand-in can be slower
+        // than the player it shows, so let it animate faster.
+        const bool flatOut = blend >= kFullGait;
+        if (flatOut) ++stats_.fullGait;
+        PED::SET_PED_MOVE_RATE_OVERRIDE(entity, flatOut && behind > 2.f ? kMaxMoveRate : 1.f);
 
         // Aim well ahead along the way they're going: a go-to task slows down
         // as it nears its target, so a close aim made riders brake twice a
@@ -373,6 +390,7 @@ void RemoteAvatar::drive(const Mover& m, Vec3 target, Vec3 vel, float heading, M
     }
 
     // Standing still: walk onto the exact spot, face the same way, stop.
+    PED::SET_PED_MOVE_RATE_OVERRIDE(entity, 1.f);
     const bool justStopped = !d.tasked || d.lastMove != MoveState::Idle;
     const bool drifted = dist > 0.75f && now - d.lastTaskAt > static_cast<int64_t>(t.retaskMs);
     if (justStopped || drifted) {

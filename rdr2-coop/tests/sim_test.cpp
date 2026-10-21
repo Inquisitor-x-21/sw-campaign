@@ -358,6 +358,69 @@ void testRespawns() {
     CHECK(sim::pushesOutOfRange() == 0);  // also counts deleting an entity that isn't ours
 }
 
+// A player galloping flat out on a good horse: faster than a stock NPC horse
+// of the same breed can go. The stand-in's horse gets top ranks and, at the
+// top gait and behind, a faster animation, so it keeps up without warping.
+void testFastGallop() {
+    sim::reset();
+    setupModels();
+    PlayerInfo info;
+    info.id = 2;
+    info.name = "Charles";
+    info.model = "g_m_m_uniduster_01";
+    AvatarTuning tuning;
+    const uint32_t morgan = joaat("a_c_horse_morgan_bay");
+    {
+        RemoteAvatar avatar(info);
+        SnapshotBuffer buffer;
+        InterpSettings interp;
+        Vec3 truth{0, 0, 10};
+        const Vec3 vel{12.5f, 0, 0};
+        int64_t now = 500000;
+        double errSum = 0;
+        int n = 0;
+        for (int frame = 0; frame < 30 * 60; ++frame, now += 16) {
+            truth = truth + vel * (16.f / 1000.f);
+            if (frame % 3 == 0) {
+                PlayerState s;
+                s.timeMs = static_cast<uint32_t>(now);
+                s.flags = StateFlag::Mounted;
+                s.mountModel = morgan;
+                s.pos = truth + Vec3{0, 0, 1};
+                s.vel = vel;
+                s.heading = 270.f;
+                s.move = MoveState::Sprint;
+                s.mountPos = truth;
+                s.mountVel = vel;
+                s.mountHeading = 270.f;
+                buffer.push(s, now + 30);
+            }
+            SampleResult r;
+            if (buffer.sample(now, interp, r)) avatar.update(r, now, tuning);
+            sim::step(16.f / 1000.f);
+            if (frame == 3 * 60) avatar.stats().reset();  // judge from 3 s in
+            const StandIn st = findStandIn(joaat("g_m_m_uniduster_01"));
+            if (frame > 3 * 60 && st.horse != nullptr) {
+                errSum += distance(st.horse->pos, avatar.shownPosition());
+                ++n;
+            }
+        }
+        const StandIn st = findStandIn(joaat("g_m_m_uniduster_01"));
+        CHECK(st.horse != nullptr && st.horse->attributes[5] == 10 && st.horse->attributes[6] == 10);
+        CHECK(st.horse != nullptr && st.horse->bonding == 4 && st.horse->staminaDepletion == 0);
+        CHECK(st.rider != nullptr && st.rider->staminaDepletion == 0);
+        CHECK(n > 0 && errSum / n < 3.0);
+        const SyncStats& s = avatar.stats();
+        CHECK(s.warps == 0);
+        CHECK(s.samples > 0 && std::fabs(s.theirSpeedSum / s.samples - 12.5) < 0.5);
+        CHECK(s.samples > 0 && std::fabs(s.ourSpeedSum / s.samples - 12.5) < 1.5);
+        std::printf("    flat-out gallop at 12.5 m/s: error avg %.2f m, warps %u, stand-in %.1f m/s, full gait %.0f%%\n",
+                    n > 0 ? errSum / n : -1.0, s.warps, s.samples ? s.ourSpeedSum / s.samples : 0.0,
+                    s.samples ? 100.0 * s.fullGait / s.samples : 0.0);
+    }
+    CHECK(sim::unknownNatives().empty() && sim::pushesOutOfRange() == 0);
+}
+
 // A blip style the game rejects is tried once per change, not every frame.
 void testBlipStyleRejected() {
     sim::reset();
@@ -430,6 +493,8 @@ int main() {
     testRespawns();
     std::printf("[ RUN  ] blip style the game rejects\n");
     testBlipStyleRejected();
+    std::printf("[ RUN  ] flat-out gallop on a faster horse\n");
+    testFastGallop();
     std::printf("[ RUN  ] scenario, Teleport movement\n");
     runScenario(MovementMode::Teleport, MountedTask::AnyMeans);
     std::printf("[ RUN  ] scenario, Hybrid movement, riding task AnyMeans\n");

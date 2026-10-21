@@ -5,6 +5,23 @@
 #include "native_invoker.h"
 
 namespace rdr {
+namespace ATTRIBUTE {
+    constexpr uint64_t SET_ATTRIBUTE_BASE_RANK_HASH = 0x5DA12E025D47D4E5ull;
+    /// attributeIndex:
+    /// enum ePedAttribute
+    /// {
+    /// PA_HEALTH,
+    /// PA_STAMINA,
+    /// PA_SPECIALABILITY,
+    inline void SET_ATTRIBUTE_BASE_RANK(Ped ped, int attributeIndex, int newValue) { return invoke<void>(SET_ATTRIBUTE_BASE_RANK_HASH, ped, attributeIndex, newValue); }
+    constexpr uint64_t GET_ATTRIBUTE_RANK_HASH = 0xA4C8E23E29040DE0ull;
+    /// attributeIndex: see SET_ATTRIBUTE_BASE_RANK
+    inline int GET_ATTRIBUTE_RANK(Ped ped, int attributeIndex) { return invoke<int>(GET_ATTRIBUTE_RANK_HASH, ped, attributeIndex); }
+    constexpr uint64_t GET_MAX_ATTRIBUTE_RANK_HASH = 0x704674A0535A471Dull;
+    /// attributeIndex: see SET_ATTRIBUTE_BASE_RANK
+    inline int GET_MAX_ATTRIBUTE_RANK(Ped ped, int attributeIndex) { return invoke<int>(GET_MAX_ATTRIBUTE_RANK_HASH, ped, attributeIndex); }
+} // namespace ATTRIBUTE
+
 namespace CAMERA {
     constexpr uint64_t IS_SCREEN_FADED_OUT_HASH = 0xF5472C80DF2FF847ull;
     inline BOOL IS_SCREEN_FADED_OUT() { return invoke<BOOL>(IS_SCREEN_FADED_OUT_HASH); }
@@ -128,6 +145,14 @@ namespace PED {
     constexpr uint64_t _COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO_HASH = 0xCA95924C893A0C91ull;
     /// Returns ped move blend ratio corresponding to the specified speed.
     inline float _COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO(Ped ped, float speed) { return invoke<float>(_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO_HASH, ped, speed); }
+    constexpr uint64_t SET_PED_MOVE_RATE_OVERRIDE_HASH = 0x085BF80FA50A39D1ull;
+    /// Min: 0.0f
+    /// Max: 1.15f
+    inline void SET_PED_MOVE_RATE_OVERRIDE(Ped ped, float value) { return invoke<void>(SET_PED_MOVE_RATE_OVERRIDE_HASH, ped, value); }
+    constexpr uint64_t _SET_STAMINA_DEPLETION_MULTIPLIER_HASH = 0xEF5A3D2285D8924Bull;
+    inline void _SET_STAMINA_DEPLETION_MULTIPLIER(Ped ped, int multiplier) { return invoke<void>(_SET_STAMINA_DEPLETION_MULTIPLIER_HASH, ped, multiplier); }
+    constexpr uint64_t _SET_MOUNT_BONDING_LEVEL_HASH = 0xA69899995997A63Bull;
+    inline void _SET_MOUNT_BONDING_LEVEL(Ped ped, int bondingLevel) { return invoke<void>(_SET_MOUNT_BONDING_LEVEL_HASH, ped, bondingLevel); }
 } // namespace PED
 
 namespace PLAYER {

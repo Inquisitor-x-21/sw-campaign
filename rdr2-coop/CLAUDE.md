@@ -103,8 +103,10 @@ give the numbers. Order (from README "First test in game"):
 
 Logs: `<game folder>\RDR2Coop_logs\*.log`, newest per launch (falls back to
 `%LOCALAPPDATA%\RDR2Coop\logs` if the game folder is read-only). Every 10 s:
-`sync | <player> | ping | error avg/max | extrapolated % | warps | buffer min`.
-Healthy: error avg under ~1 m on foot, extrapolated under a few %, warps 0.
+`sync | <player> | ping | error avg/max | speed them/us | full gait % | extrapolated % | warps | buffer min`.
+Healthy: error avg under ~1.5 m on foot and ~3 m riding, warps 0. "speed us"
+well below "speed them" with full gait near 100% means the stand-in is at
+its top speed and can't keep up.
 Tuning knobs live in `[Sync]` and `[Tuning]` of RDR2Coop.ini and reload live with F6.
 
 ## Known open items

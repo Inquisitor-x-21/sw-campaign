@@ -451,9 +451,11 @@ void logStats(int64_t now) {
             LOG_INFO("sync | %s | no samples yet (%s)", v.info.name.c_str(), it->second->status().c_str());
             continue;
         }
-        LOG_INFO("sync | %s | ping %u ms | error avg %.2f m max %.2f m | extrapolated %.0f%% | warps %u | buffer min %d ms",
-                 v.info.name.c_str(), v.pingMs, s.errorSum / s.samples, s.errorMax, 100.0 * s.extrapolated / s.samples,
-                 s.warps, s.minBufferMs == INT32_MAX ? 0 : s.minBufferMs);
+        LOG_INFO("sync | %s | ping %u ms | error avg %.2f m max %.2f m | speed them %.1f us %.1f m/s | full gait %.0f%% "
+                 "| extrapolated %.0f%% | warps %u | buffer min %d ms",
+                 v.info.name.c_str(), v.pingMs, s.errorSum / s.samples, s.errorMax, s.theirSpeedSum / s.samples,
+                 s.ourSpeedSum / s.samples, 100.0 * s.fullGait / s.samples, 100.0 * s.extrapolated / s.samples, s.warps,
+                 s.minBufferMs == INT32_MAX ? 0 : s.minBufferMs);
         s.reset();
     }
 }

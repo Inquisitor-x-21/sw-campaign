@@ -37,6 +37,11 @@ struct Ent {
     float taskRadius = 0.5f;
     bool velOverride = false;
     coop::Vec3 overrideVel;
+    int age = 0;               // frames since spawned
+    int attributes[8] = {3, 3, 3, 3, 3, 3, 3, 3};  // ePedAttribute ranks, max 10
+    float moveRate = 1.f;      // SET_PED_MOVE_RATE_OVERRIDE
+    int staminaDepletion = 1;  // _SET_STAMINA_DEPLETION_MULTIPLIER
+    int bonding = 1;           // _SET_MOUNT_BONDING_LEVEL
 };
 
 void reset();

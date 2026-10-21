@@ -46,6 +46,15 @@ int ensureModel(ModelRequest& req, uint32_t modelHash, int64_t nowMs);
 void releaseModel(uint32_t modelHash);
 
 rdr::Ped spawnPed(uint32_t modelHash, Vec3 pos, float heading);
+// Players' horses are bonded and saddled, so a stock NPC horse of the same
+// breed falls behind at a full gallop. Stand-in horses get the top speed,
+// acceleration, agility and stamina ranks and full bonding.
+struct HorseBoost {
+    int speedBefore = 0;
+    int speedAfter = 0;
+    int speedMax = 0;
+};
+HorseBoost boostHorse(rdr::Ped horse);
 // Makes a spawned ped behave like another player's stand-in: persistent,
 // unkillable, ignores events, friendly to the local player.
 void prepareAvatarPed(rdr::Ped ped, int outfit, bool isHorse);
@@ -55,12 +64,14 @@ bool entityExists(rdr::Entity entity);
 // reuse the handle, so this is the check for "still ours".
 bool entityHasModel(rdr::Entity entity, uint32_t modelHash);
 Vec3 entityPos(rdr::Entity entity);
+float entitySpeed2d(rdr::Entity entity);
 float entityHeading(rdr::Entity entity);
 
 // Move blend ratio (0 still, 1 walk, 2 run, 3 sprint or gallop) for `speed`
 // m/s. askGame: ask _COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO, which knows the
 // ped's own gaits; otherwise, or if its answer is out of range, typical gait
-// speeds. In game it answered sensibly for horses but 2.0 for any speed on foot.
+// speeds. In game, asked the moment a ped spawned, it said 2.0 for any speed on
+// foot; a moment later 1.04 / 1.71 / 2.47 for 1.5 / 3.5 / 6 m/s.
 float moveBlendForSpeed(rdr::Ped mover, float speed, bool isHorse, bool askGame);
 // A movement task to `to`. anyMeans: TASK_GO_TO_COORD_ANY_MEANS (rides a mount
 // there), otherwise TASK_GO_STRAIGHT_TO_COORD.

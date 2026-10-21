@@ -31,6 +31,9 @@ AvatarTuning tuningFromConfig(const coop::Config& cfg);
 struct SyncStats {
     double errorSum = 0;
     float errorMax = 0;
+    double theirSpeedSum = 0;  // the remote player's speed (m/s)
+    double ourSpeedSum = 0;    // the stand-in's speed
+    uint32_t fullGait = 0;     // samples asking for the top gait (sprint / gallop)
     uint32_t samples = 0;
     uint32_t extrapolated = 0;
     uint32_t warps = 0;
@@ -79,7 +82,7 @@ private:
     void dismountIfNeeded(const coop::PlayerState& s);
     void maybeDropIdleHorse(int64_t nowMs);
     void noteSeatChange(bool retrying, const char* problem);
-    void checkMoveBlendOnce(const Mover& m);
+    void checkMoveBlendOnce(const Mover& m, int64_t nowMs);
     float moveBlend(const Mover& m, float speed) const;
     void drive(const Mover& m, coop::Vec3 target, coop::Vec3 vel, float heading, coop::MoveState move,
                coop::MovementMode mode, Drive& d, int64_t nowMs, const AvatarTuning& tuning);
@@ -101,12 +104,15 @@ private:
     int64_t horseRetryAt_ = 0;
     int64_t horseIdleSince_ = -1;
     uint32_t seatRetries_ = 0;
-    // Per gait type: checked whether the game's speed-to-blend answers vary
-    // with speed, and whether to use them.
-    bool checkedFootBlend_ = false;
-    bool checkedHorseBlend_ = false;
-    bool gameFootBlend_ = false;
-    bool gameHorseBlend_ = false;
+    // Per gait type: do the game's speed-to-blend answers follow speed?
+    struct BlendCheck {
+        bool done = false;
+        bool useGame = false;
+        int tries = 0;
+        int64_t nextAt = 0;
+    };
+    BlendCheck footBlend_;
+    BlendCheck horseBlend_;
     bool loggedMountedTask_ = false;
     coop::MountedTask mountedTask_ = coop::MountedTask::AnyMeans;
 

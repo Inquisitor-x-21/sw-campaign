@@ -12,6 +12,12 @@ namespace game {
 namespace {
 
 constexpr int kRelationshipCompanion = 0;
+// ePedAttribute
+constexpr int kAttrStamina = 1;
+constexpr int kAttrAgility = 4;
+constexpr int kAttrSpeed = 5;
+constexpr int kAttrAcceleration = 6;
+constexpr int kMaxBondingLevel = 4;
 constexpr const char* kRelationshipGroupName = "RDR2COOP_PLAYERS";
 
 Hash g_group = 0;
@@ -124,6 +130,19 @@ Ped spawnPed(uint32_t modelHash, Vec3 pos, float heading) {
     return (ped != 0 && ENTITY::DOES_ENTITY_EXIST(ped)) ? ped : 0;
 }
 
+HorseBoost boostHorse(Ped horse) {
+    HorseBoost b;
+    b.speedBefore = ATTRIBUTE::GET_ATTRIBUTE_RANK(horse, kAttrSpeed);
+    for (int attribute : {kAttrStamina, kAttrAgility, kAttrSpeed, kAttrAcceleration}) {
+        const int max = ATTRIBUTE::GET_MAX_ATTRIBUTE_RANK(horse, attribute);
+        if (max > 0) ATTRIBUTE::SET_ATTRIBUTE_BASE_RANK(horse, attribute, max);
+    }
+    PED::_SET_MOUNT_BONDING_LEVEL(horse, kMaxBondingLevel);
+    b.speedAfter = ATTRIBUTE::GET_ATTRIBUTE_RANK(horse, kAttrSpeed);
+    b.speedMax = ATTRIBUTE::GET_MAX_ATTRIBUTE_RANK(horse, kAttrSpeed);
+    return b;
+}
+
 void prepareAvatarPed(Ped ped, int outfit, bool isHorse) {
     ENTITY::SET_ENTITY_AS_MISSION_ENTITY(ped, TRUE, TRUE);
     // Peds created by script are invisible until an outfit is applied.
@@ -135,6 +154,8 @@ void prepareAvatarPed(Ped ped, int outfit, bool isHorse) {
     PED::SET_PED_CAN_RAGDOLL(ped, FALSE);
     PED::SET_PED_CAN_BE_TARGETTED(ped, FALSE);
     PED::SET_PED_FLEE_ATTRIBUTES(ped, 0, FALSE);
+    // A stand-in mirrors a player, who manages their own stamina; never tire.
+    PED::_SET_STAMINA_DEPLETION_MULTIPLIER(ped, 0);
     PED::SET_PED_RELATIONSHIP_GROUP_HASH(ped, coopRelationshipGroup());
 }
 
@@ -153,6 +174,8 @@ bool entityHasModel(Entity entity, uint32_t modelHash) {
 }
 
 Vec3 entityPos(Entity entity) { return toVec(ENTITY::GET_ENTITY_COORDS(entity, TRUE, TRUE)); }
+
+float entitySpeed2d(Entity entity) { return coop::length2d(toVec(ENTITY::GET_ENTITY_VELOCITY(entity, 0))); }
 
 float entityHeading(Entity entity) { return coop::wrapDegrees(ENTITY::GET_ENTITY_HEADING(entity)); }
 

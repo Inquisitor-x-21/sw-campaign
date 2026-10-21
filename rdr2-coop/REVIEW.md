@@ -66,6 +66,16 @@ Not working, then changed:
   instead of every few frames. The log prints what the game answers for a few
   speeds, so a bad answer shows up there (a table of typical gait speeds is
   the fallback).
+- **Later logs (follow pattern, you walking, running, riding):** on foot
+  2.3-3.5 m while walking or jogging, but 8-12 m behind when sprinting or
+  next to a rider; riding still drifted to 25 m (1 warp in 20 s, down from
+  2-5 per 10 s). The game's on-foot speed answer was fine when asked a
+  moment after spawning (1.04 / 1.71 / 2.47), bogus right at spawn, so the
+  check now retries. Players outrun stock NPCs (bonded, saddled horses;
+  player sprint), so stand-in horses get top speed, acceleration, agility and
+  stamina ranks and bonding 4, no stand-in tires, and at the top gait while
+  behind the animation runs up to 15% faster. The sync line now shows
+  "speed them / us" and "full gait %" to confirm it.
 - **The first `build.bat` failed** with "Could not find the compiler specified
   in the environment variable RC: 1" (see item 8), and the double-click
   window closed at once. Both fixed.

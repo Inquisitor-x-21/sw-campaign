@@ -236,10 +236,34 @@ void dispatch() {
             if (Ent* e = ent(I(0))) e->taskBlend = F(1);
             break;
         case PED::_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO_HASH: {
-            // As in the game: sensible for horses, 2.0 for any speed on foot.
+            // As in the game: on foot it says 2.0 for any speed right after
+            // spawning, and sensible values a moment later.
             Ent* e = ent(I(0));
             F(1);
-            retFloat(e == nullptr ? 0.f : (e->isHorse ? blendForSpeed(true, F(1)) : 2.f));
+            const bool settled = e != nullptr && (e->isHorse || e->age > 30);
+            retFloat(e == nullptr ? 0.f : (settled ? blendForSpeed(e->isHorse, F(1)) : 2.f));
+            break;
+        }
+        case PED::SET_PED_MOVE_RATE_OVERRIDE_HASH:
+            if (Ent* e = ent(I(0))) e->moveRate = std::clamp(F(1), 0.f, 1.15f);
+            break;
+        case PED::_SET_STAMINA_DEPLETION_MULTIPLIER_HASH:
+            if (Ent* e = ent(I(0))) e->staminaDepletion = I(1);
+            break;
+        case PED::_SET_MOUNT_BONDING_LEVEL_HASH:
+            if (Ent* e = ent(I(0))) e->bonding = I(1);
+            break;
+        case ATTRIBUTE::GET_MAX_ATTRIBUTE_RANK_HASH: I(1); retInt(10); break;
+        case ATTRIBUTE::GET_ATTRIBUTE_RANK_HASH: {
+            Ent* e = ent(I(0));
+            const int a = I(1);
+            retInt(e != nullptr && a >= 0 && a < 8 ? e->attributes[a] : 0);
+            break;
+        }
+        case ATTRIBUTE::SET_ATTRIBUTE_BASE_RANK_HASH: {
+            Ent* e = ent(I(0));
+            const int a = I(1);
+            if (e != nullptr && a >= 0 && a < 8) e->attributes[a] = std::clamp(I(2), 0, 10);
             break;
         }
         case TASK::TASK_STAND_STILL_HASH: if (Ent* e = ent(I(0))) e->hasTask = false; break;
@@ -303,7 +327,13 @@ void dispatch() {
     }
 }
 
-float taskSpeed(const Ent& mover, float blend) { return speedForBlend(mover.isHorse, std::max(1.f, blend)); }
+// A stock horse (speed rank 3 of 10) gallops about 10% slower than a fully
+// ranked one, like an NPC horse next to a bonded, saddled player horse.
+float taskSpeed(const Ent& mover, float blend) {
+    float speed = speedForBlend(mover.isHorse, std::max(1.f, blend));
+    if (mover.isHorse) speed *= 0.85f + 0.15f * static_cast<float>(mover.attributes[5]) / 10.f;
+    return speed * mover.moveRate;
+}
 
 }  // namespace
 
@@ -343,20 +373,20 @@ void step(float dt) {
     }
     // Movers: anything not ridden, moved by its own task or a rider's task.
     // As in the game: a rider's TASK_GO_STRAIGHT_TO_COORD doesn't move the
-    // horse; TASK_GO_TO_COORD_ANY_MEANS on the rider, or a task on the horse, does.
+    // horse; TASK_GO_TO_COORD_ANY_MEANS on the rider, or a task on the horse,
+    // does. SET_ENTITY_VELOCITY only moves what no task is moving (in game,
+    // velocity pushes made an untasked horse glide but didn't speed up a
+    // tasked one).
     for (auto& kv : w.ents) {
         Ent& e = kv.second;
         if (e.id == 1 || e.mount != 0) continue;  // the local player is moved by the test; riders follow mounts
         Ent* rider = ent(e.rider);
         Ent* tasked = (rider != nullptr && rider->hasTask && rider->taskAnyMeans) ? rider : (e.hasTask ? &e : nullptr);
-        if (e.velOverride) {
-            e.vel = e.overrideVel;
-            e.pos = e.pos + e.vel * dt;
-            e.velOverride = false;
-            continue;
-        }
+        const bool pushed = e.velOverride;
+        e.velOverride = false;
         if (tasked == nullptr) {
-            e.vel = {};
+            e.vel = pushed ? e.overrideVel : coop::Vec3{};
+            e.pos = e.pos + e.vel * dt;
             continue;
         }
         coop::Vec3 to = tasked->taskTarget - e.pos;
@@ -384,6 +414,7 @@ void step(float dt) {
             e.heading = m->heading;
         }
     }
+    for (auto& kv : w.ents) ++kv.second.age;
     w.clock = (w.clock + 1) % 86400;
 }
 
