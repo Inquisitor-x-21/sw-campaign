@@ -357,6 +357,43 @@ void testRespawns() {
     CHECK(sim::pushesOutOfRange() == 0);  // also counts deleting an entity that isn't ours
 }
 
+// A blip style the game rejects is tried once per change, not every frame.
+void testBlipStyleRejected() {
+    sim::reset();
+    setupModels();
+    PlayerInfo info;
+    info.id = 2;
+    info.name = "Hosea";
+    info.model = "g_m_m_uniduster_01";
+    AvatarTuning tuning;
+    tuning.blipStyle = "BLIP_STYLE_MISSING";
+    {
+        RemoteAvatar avatar(info);
+        SampleResult r;
+        r.state.pos = {5, 5, 10};
+        int64_t now = 1000;
+        for (int i = 0; i < 120; ++i, now += 16) {
+            avatar.update(r, now, tuning);
+            sim::step(1.f / 60.f);
+        }
+        CHECK(avatar.spawned());
+        CHECK(sim::blipAddCalls() == 1);
+        CHECK(sim::blipCount() == 0);
+
+        tuning.blipStyle = "BLIP_STYLE_MP_PLAYER";  // fixed in the ini, F6
+        for (int i = 0; i < 10; ++i, now += 16) avatar.update(r, now, tuning);
+        CHECK(sim::blipAddCalls() == 2);
+        CHECK(sim::blipCount() == 1);
+
+        tuning.blips = false;
+        for (int i = 0; i < 10; ++i, now += 16) avatar.update(r, now, tuning);
+        CHECK(sim::blipCount() == 0);
+        CHECK(sim::blipAddCalls() == 2);
+    }
+    CHECK(sim::entityCount() == 1);
+    CHECK(sim::unknownNatives().empty() && sim::pushesOutOfRange() == 0);
+}
+
 void testOverlayDraws() {
     sim::reset();
     Overlay o;
@@ -390,6 +427,8 @@ int main() {
     testOverlayDraws();
     std::printf("[ RUN  ] respawn after cleanup, recycled handles, reload\n");
     testRespawns();
+    std::printf("[ RUN  ] blip style the game rejects\n");
+    testBlipStyleRejected();
     std::printf("[ RUN  ] scenario, Teleport movement\n");
     runScenario(MovementMode::Teleport);
     std::printf("[ RUN  ] scenario, Hybrid movement\n");

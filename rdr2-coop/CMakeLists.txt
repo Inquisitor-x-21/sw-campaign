@@ -78,6 +78,16 @@ if(RDR2COOP_BUILD_TESTS)
         target_include_directories(plugin_sim_tests PRIVATE tests/sim plugin)
         target_link_libraries(plugin_sim_tests PRIVATE coop_core)
         add_test(NAME plugin_sim_tests COMMAND plugin_sim_tests)
+
+        # The main loop (plugin/script.cpp) on a lockstep "script thread", with
+        # real sessions on loopback as the other players.
+        find_package(Threads REQUIRED)
+        add_executable(plugin_script_tests tests/script_test.cpp tests/sim/fake_game.cpp tests/sim/fake_windows.cpp
+            plugin/script.cpp plugin/game.cpp plugin/avatar.cpp plugin/overlay.cpp)
+        target_include_directories(plugin_script_tests PRIVATE tests/sim plugin)
+        target_link_libraries(plugin_script_tests PRIVATE coop_core Threads::Threads)
+        add_test(NAME plugin_script_tests COMMAND plugin_script_tests)
+        add_test(NAME plugin_script_tests_log_fallback COMMAND plugin_script_tests log-fallback)
     endif()
 endif()
 

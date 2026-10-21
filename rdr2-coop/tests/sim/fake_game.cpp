@@ -27,6 +27,7 @@ struct World {
     std::vector<uint64_t> unknown;
     int badPushes = 0;
     int createFailures = 0;
+    int blipAdds = 0;
 } w;
 
 uint64_t g_hash = 0;
@@ -213,8 +214,9 @@ void dispatch() {
         case DLC::GET_IS_LOADING_SCREEN_ACTIVE_HASH: retBool(w.busy); break;
         case CAMERA::IS_SCREEN_FADED_OUT_HASH: retBool(false); break;
         case MAP::BLIP_ADD_FOR_ENTITY_HASH: {
-            I(0);
-            if (ent(I(1)) == nullptr) {
+            ++w.blipAdds;
+            // A style this "game" doesn't know fails, like a typo'd BlipStyle.
+            if (ent(I(1)) == nullptr || static_cast<uint32_t>(I(0)) == coop::joaat("BLIP_STYLE_MISSING")) {
                 retInt(0);
                 break;
             }
@@ -381,12 +383,11 @@ void clearText() { w.text.clear(); }
 const std::vector<uint64_t>& unknownNatives() { return w.unknown; }
 int pushesOutOfRange() { return w.badPushes; }
 int createPedFailures() { return w.createFailures; }
+int blipAddCalls() { return w.blipAdds; }
 
 }  // namespace sim
 
 // ---------------------------------------------------- the fake Script Hook API
-
-void scriptWait(DWORD) {}
 
 void nativeInit(UINT64 hash) {
     sim::g_hash = hash;

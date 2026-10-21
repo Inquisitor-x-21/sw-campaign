@@ -84,6 +84,7 @@ struct State {
     uint32_t frames = 0;
     std::vector<std::string> lanIps;
     std::string logDir;
+    bool logFallback = false;  // logDir isn't next to the game
 };
 
 // Deliberately never destroyed. Its destructors delete stand-ins through
@@ -127,7 +128,7 @@ bool openLogIn(const fs::path& logs) {
 void openLog() {
     if (openLogIn(fs::path(g.dir) / "RDR2Coop_logs")) return;
     const char* localAppData = std::getenv("LOCALAPPDATA");
-    if (localAppData != nullptr) openLogIn(fs::path(localAppData) / "RDR2Coop" / "logs");
+    if (localAppData != nullptr && openLogIn(fs::path(localAppData) / "RDR2Coop" / "logs")) g.logFallback = true;
 }
 
 std::vector<std::string> lanAddresses() {
@@ -431,7 +432,7 @@ void logStats(int64_t now) {
     const coop::SessionStats st = g.session->stats();
     LOG_INFO("perf | %.0f fps | %d/%d players | states sent %u recv %u relayed %u | bad packets %u | %.1f KB out %.1f KB in",
              fps, g.session->playerCount(), g.session->maxPlayers(), st.statesSent, st.statesReceived, st.statesRelayed,
-             st.badPackets, st.bytesSent / 1024.0, st.bytesReceived / 1024.0);
+             st.badPackets, static_cast<double>(st.bytesSent) / 1024.0, static_cast<double>(st.bytesReceived) / 1024.0);
     for (const coop::RemoteView& v : g.session->remoteViews(now)) {
         auto it = g.avatars.find(v.info.id);
         if (it == g.avatars.end()) continue;
@@ -458,7 +459,7 @@ void initOnce() {
                       nowMs(), Overlay::Tone::Info, 10000);
     if (g.logDir.empty()) {
         g.overlay.message("Couldn't create a log file (game folder read-only?)", nowMs(), Overlay::Tone::Warn, 10000);
-    } else if (g.logDir.rfind(g.dir, 0) != 0) {
+    } else if (g.logFallback) {
         g.overlay.message("Logs: " + g.logDir + " (game folder is read-only)", nowMs(), Overlay::Tone::Warn, 10000);
     }
     g.initialized = true;

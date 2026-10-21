@@ -57,5 +57,6 @@ void clearText();
 const std::vector<uint64_t>& unknownNatives();
 int pushesOutOfRange();
 int createPedFailures();
+int blipAddCalls();
 
 }  // namespace sim

@@ -78,6 +78,7 @@ private:
     bool riderOnFallback_ = false;
     rdr::Ped ped_ = 0;
     int blip_ = 0;
+    bool blipsOn_ = false;  // blips setting of the last refreshBlip
     std::string blipStyle_;
     game::ModelRequest riderReq_;
     int64_t retryAt_ = 0;

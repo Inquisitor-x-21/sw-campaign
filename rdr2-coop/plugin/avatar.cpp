@@ -82,7 +82,15 @@ void RemoteAvatar::despawn() {
 void RemoteAvatar::refreshBlip(const AvatarTuning& tuning) {
     game::removeBlip(blip_);
     blipStyle_ = tuning.blipStyle;
-    if (tuning.blips && ped_ != 0) blip_ = game::addBlip(ped_, tuning.blipStyle, info_.name);
+    blipsOn_ = tuning.blips;
+    if (tuning.blips && ped_ != 0) {
+        blip_ = game::addBlip(ped_, tuning.blipStyle, info_.name);
+        // Not retried every frame: a style the game doesn't know fails each time.
+        if (blip_ == 0) {
+            LOG_WARN("couldn't add a %s blip for %s; try another BlipStyle", tuning.blipStyle.c_str(),
+                     info_.name.c_str());
+        }
+    }
 }
 
 bool RemoteAvatar::spawnRider(const PlayerState& s, int64_t now, const AvatarTuning& tuning) {
@@ -249,7 +257,7 @@ void RemoteAvatar::update(const coop::SampleResult& sample, int64_t now, const A
         game::deleteEntity(horse_);
     }
     if (ped_ == 0 && (now < retryAt_ || !spawnRider(s, now, tuning))) return;
-    if ((tuning.blips != (blip_ != 0)) || blipStyle_ != tuning.blipStyle) refreshBlip(tuning);
+    if (tuning.blips != blipsOn_ || blipStyle_ != tuning.blipStyle) refreshBlip(tuning);
 
     if (s.mounted()) {
         lastTarget_ = s.mountPos;
