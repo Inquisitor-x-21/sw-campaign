@@ -6,6 +6,7 @@
 #include <ws2tcpip.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -14,7 +15,9 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "avatar.h"
@@ -34,6 +37,8 @@ namespace {
 
 constexpr size_t kKeepLogs = 20;
 constexpr int64_t kRegroupWaitMs = 10000;
+constexpr int64_t kKeepAliveAfterMs = 250;   // no tick for this long: service the network from the side
+constexpr int64_t kReportPauseMs = 1000;     // log pauses in script ticks longer than this
 
 // Not GetTickCount64: it only advances every ~15.6 ms, which shows up as
 // stutter in interpolated movement and jitter in state timestamps.
@@ -85,6 +90,11 @@ struct State {
     std::vector<std::string> lanIps;
     std::string logDir;
     bool logFallback = false;  // logDir isn't next to the game
+
+    // The script fiber holds `net` while it ticks; keepNetworkAlive takes it to
+    // service the session while the game isn't running scripts.
+    std::mutex net;
+    std::atomic<int64_t> lastTickAt{0};
 };
 
 // Deliberately never destroyed. Its destructors delete stand-ins through
@@ -465,6 +475,21 @@ void initOnce() {
     g.initialized = true;
 }
 
+// ENet only answers the others while someone services it, and normally that is
+// the script tick. The game may stop running scripts in the pause menu, on the
+// map or during loading screens, and the others would then time us out after
+// a few seconds. This thread services the session whenever the script hasn't
+// ticked for a while. It never calls natives: Session has no game code.
+void keepNetworkAlive() {
+    for (;;) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        const int64_t now = nowMs();
+        if (now - g.lastTickAt.load() < kKeepAliveAfterMs) continue;
+        std::lock_guard<std::mutex> lock(g.net);
+        if (g.session) g.session->update(now);
+    }
+}
+
 // Script Hook starts the script again when the game reloads (loading a save,
 // for example). The session and its sockets live on in g, but the stand-ins
 // went with the old world, and their handles may now name other entities.
@@ -486,19 +511,33 @@ void tick() {
 }  // namespace
 
 void coopScriptMain() {
-    if (!g.initialized) {
-        initOnce();
-    } else {
-        onScriptRestart();
+    {
+        std::lock_guard<std::mutex> lock(g.net);
+        if (!g.initialized) {
+            initOnce();
+            g.lastTickAt = nowMs();
+            std::thread(keepNetworkAlive).detach();  // runs until the game exits
+        } else {
+            onScriptRestart();
+        }
     }
     for (;;) {
-        try {
-            tick();
-        } catch (const std::exception& ex) {
-            LOG_ERROR("unexpected error, leaving the session: %s", ex.what());
-            if (g.session) g.session->leave();
-            endSessionNow();
+        {
+            std::lock_guard<std::mutex> lock(g.net);
+            const int64_t pause = nowMs() - g.lastTickAt.load();
+            if (pause > kReportPauseMs) {
+                LOG_INFO("the game didn't run scripts for %.1f s (pause menu, map or loading screen?)%s",
+                         static_cast<double>(pause) / 1000.0, g.session ? "; the connection was kept alive" : "");
+            }
+            try {
+                tick();
+            } catch (const std::exception& ex) {
+                LOG_ERROR("unexpected error, leaving the session: %s", ex.what());
+                if (g.session) g.session->leave();
+                endSessionNow();
+            }
+            g.lastTickAt = nowMs();
         }
-        scriptWait(0);
+        scriptWait(0);  // never while holding `net`: other fibers and the keepalive run now
     }
 }

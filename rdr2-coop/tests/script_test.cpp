@@ -1,7 +1,7 @@
 // Runs the plugin's main loop (plugin/script.cpp: hotkeys, session events,
 // stand-ins, regroup, clock sync, overlay, config reload, logs) against the
 // simulated world, with real network sessions on loopback as the other players.
-//   plugin_script_tests                 host, restart and client scenarios
+//   plugin_script_tests                 host, pause, restart and client scenarios
 //   plugin_script_tests log-fallback    game folder not writable
 #include <chrono>
 #include <cstdio>
@@ -209,6 +209,21 @@ void testHosting() {
     press(kF11);
     CHECK(distance(localPos(), bot.state.mountPos) < 4.f);
     CHECK(onScreen("Regrouped with Bot1"));
+
+    // The game stops running scripts (pause menu, map, loading screen) for
+    // longer than the network timeout. The bot has to stay connected.
+    std::printf("[ RUN  ] game stops running scripts\n");
+    const int64_t resumeAt = nowMs() + 9000;
+    while (nowMs() < resumeAt) {
+        bot.pump();
+        std::this_thread::sleep_for(std::chrono::milliseconds(8));
+    }
+    CHECK(bot.s->active() && bot.find(EventType::Stopped) == nullptr);
+    frames(5);
+    CHECK(onScreen("Players 2/4"));
+    CHECK(standIns(kCriminal).size() == 1);
+    CHECK(logHas("the game didn't run scripts for 9."));
+    CHECK(logHas("the connection was kept alive"));
 
     CHECK(framesUntil(300, [] { return logHas("sync | Bot1 | ping"); }));  // StatsIntervalMs = 1000
     CHECK(logHas("perf |"));
