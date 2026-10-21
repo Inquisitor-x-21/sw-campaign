@@ -107,6 +107,10 @@ new tests fail 20 checks (14 in `plugin_sim_tests`, 6 in
      `timeout`; on the user's PC the window still closed at once.)
    - The copy-failed message now mentions administrator rights for Program
      Files.
+   - Every variable the scripts set starts with `COOP_`. On the user's PC the
+     first real run failed because `build.bat` kept its exit code in `RC`,
+     which CMake reads as the path of the resource compiler ("Could not find
+     the compiler specified in the environment variable RC: 1").
    - `.gitattributes` stores `.bat` files with CRLF exactly as they are. (The
      first version let git convert them, which made `git archive`, and so
      GitHub's "Download ZIP", hand out LF-only batch files. `cmd` can
