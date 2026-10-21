@@ -22,7 +22,10 @@ up on the user's Windows PC to review it, build it, and run the in-game tests.
 
 ## Review request (do this first)
 
-Read the code and report problems before building. Highest-risk areas, in order:
+A first review pass ran without Windows or the game; findings, fixes and what
+is still unverified are in `REVIEW.md`. Read it first, then finish the parts
+only this PC can check (items 2-4 below and the in-game tests). Highest-risk
+areas, in order:
 
 1. `plugin/script.cpp` - the main loop, hotkeys, session events, regroup,
    clock sync. Windows-only, so **no automated test covers it**.
@@ -73,7 +76,7 @@ sdk/                user puts the Script Hook RDR2 SDK here (not included)
 2. Script Hook RDR2 matching the game version (ScriptHookRDR2.dll + dinput8.dll
    next to RDR2.exe) and its SDK in `sdk\` (`sdk\inc\main.h`,
    `sdk\lib\ScriptHookRDR2.lib`). Downloads: dev-c.com.
-3. Visual Studio 2022 with "Desktop development with C++".
+3. Visual Studio 2022 or 2026 with "Desktop development with C++".
 4. `build.bat`, then `install.bat "<RDR2 folder>"`.
 
 ## In-game test loop
@@ -88,7 +91,8 @@ give the numbers. Order (from README "First test in game"):
    user presses F6 (reload). In sync then = the movement tasks need tuning.
 5. `--churn 10` for drop-in/drop-out, then a second instance or a friend.
 
-Logs: `<game folder>\RDR2Coop_logs\*.log`, newest per launch. Every 10 s:
+Logs: `<game folder>\RDR2Coop_logs\*.log`, newest per launch (falls back to
+`%LOCALAPPDATA%\RDR2Coop\logs` if the game folder is read-only). Every 10 s:
 `sync | <player> | ping | error avg/max | extrapolated % | warps | buffer min`.
 Healthy: error avg under ~1 m on foot, extrapolated under a few %, warps 0.
 Tuning knobs live in `[Sync]` and `[Tuning]` of RDR2Coop.ini and reload live with F6.

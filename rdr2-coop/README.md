@@ -19,7 +19,7 @@ combat and missions are later stages (see the design doc).
 - [Script Hook RDR2](http://www.dev-c.com/rdr2/scripthookrdr2/) matching your
   game version (ScriptHookRDR2.dll + dinput8.dll in the game folder)
 - The **Script Hook RDR2 SDK** (same page), only to build
-- **Visual Studio 2022** with "Desktop development with C++", only to build
+- **Visual Studio 2022 or 2026** with "Desktop development with C++", only to build
 
 Back up your saves first: `Documents\Rockstar Games\Red Dead Redemption 2\Profiles`.
 
@@ -85,8 +85,10 @@ Do these in order; each one isolates a different part.
 4. `--bots 3 --churn 10` for joins and leaves.
 5. Real second player (second instance or a friend).
 
-Each game launch writes a log to `RDR2Coop_logs\` in the game folder. Every
-10 seconds it records sync quality for each player:
+Each game launch writes a log to `RDR2Coop_logs\` in the game folder (or to
+`%LOCALAPPDATA%\RDR2Coop\logs` if the game folder is read-only, as under
+Program Files; a message on screen says so). Every 10 seconds it records sync
+quality for each player:
 
 ```
 sync | Bot1 | ping 1 ms | error avg 0.42 m max 1.10 m | extrapolated 0% | warps 0 | buffer min 38 ms
