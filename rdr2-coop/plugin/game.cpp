@@ -156,10 +156,12 @@ Vec3 entityPos(Entity entity) { return toVec(ENTITY::GET_ENTITY_COORDS(entity, T
 
 float entityHeading(Entity entity) { return coop::wrapDegrees(ENTITY::GET_ENTITY_HEADING(entity)); }
 
-float moveBlendForSpeed(Ped mover, float speed, bool isHorse) {
+float moveBlendForSpeed(Ped mover, float speed, bool isHorse, bool askGame) {
     if (speed < 0.1f) return 0.f;
-    const float fromGame = PED::_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO(mover, speed);
-    if (std::isfinite(fromGame) && fromGame > 0.f && fromGame <= 3.f) return fromGame;
+    if (askGame) {
+        const float fromGame = PED::_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO(mover, speed);
+        if (std::isfinite(fromGame) && fromGame > 0.f && fromGame <= 3.f) return fromGame;
+    }
     // Typical speeds (m/s) at blend 0, 1, 2 and 3.
     static const float foot[] = {0.f, 1.4f, 3.6f, 6.2f};
     static const float horse[] = {0.f, 1.8f, 5.5f, 11.f};

@@ -18,7 +18,7 @@ struct AvatarTuning {
     float correctionStart = 1.f;
     float correctionGain = 1.5f;
     uint32_t retaskMs = 400;
-    float lookahead = 0.5f;
+    float lookahead = 2.f;
     coop::MountedTask mountedTask = coop::MountedTask::AnyMeans;
     bool blips = true;
     std::string blipStyle = "BLIP_STYLE_MP_PLAYER";
@@ -79,7 +79,8 @@ private:
     void dismountIfNeeded(const coop::PlayerState& s);
     void maybeDropIdleHorse(int64_t nowMs);
     void noteSeatChange(bool retrying, const char* problem);
-    void logMoveBlendOnce(const Mover& m);
+    void checkMoveBlendOnce(const Mover& m);
+    float moveBlend(const Mover& m, float speed) const;
     void drive(const Mover& m, coop::Vec3 target, coop::Vec3 vel, float heading, coop::MoveState move,
                coop::MovementMode mode, Drive& d, int64_t nowMs, const AvatarTuning& tuning);
 
@@ -100,8 +101,12 @@ private:
     int64_t horseRetryAt_ = 0;
     int64_t horseIdleSince_ = -1;
     uint32_t seatRetries_ = 0;
-    bool loggedFootBlend_ = false;
-    bool loggedHorseBlend_ = false;
+    // Per gait type: checked whether the game's speed-to-blend answers vary
+    // with speed, and whether to use them.
+    bool checkedFootBlend_ = false;
+    bool checkedHorseBlend_ = false;
+    bool gameFootBlend_ = false;
+    bool gameHorseBlend_ = false;
     bool loggedMountedTask_ = false;
     coop::MountedTask mountedTask_ = coop::MountedTask::AnyMeans;
 

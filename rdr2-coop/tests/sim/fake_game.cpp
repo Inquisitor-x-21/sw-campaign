@@ -236,8 +236,10 @@ void dispatch() {
             if (Ent* e = ent(I(0))) e->taskBlend = F(1);
             break;
         case PED::_COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO_HASH: {
+            // As in the game: sensible for horses, 2.0 for any speed on foot.
             Ent* e = ent(I(0));
-            retFloat(e != nullptr ? blendForSpeed(e->isHorse, F(1)) : 0.f);
+            F(1);
+            retFloat(e == nullptr ? 0.f : (e->isHorse ? blendForSpeed(true, F(1)) : 2.f));
             break;
         }
         case TASK::TASK_STAND_STILL_HASH: if (Ent* e = ent(I(0))) e->hasTask = false; break;

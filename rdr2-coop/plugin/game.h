@@ -57,10 +57,11 @@ bool entityHasModel(rdr::Entity entity, uint32_t modelHash);
 Vec3 entityPos(rdr::Entity entity);
 float entityHeading(rdr::Entity entity);
 
-// Move blend ratio (0 still, 1 walk, 2 run, 3 sprint or gallop) that makes
-// `mover` travel at `speed` m/s. Asks the game, which knows each ped's gaits;
-// falls back to typical gait speeds if the answer is unusable.
-float moveBlendForSpeed(rdr::Ped mover, float speed, bool isHorse);
+// Move blend ratio (0 still, 1 walk, 2 run, 3 sprint or gallop) for `speed`
+// m/s. askGame: ask _COMPUTE_SPEED_FOR_PED_MOVE_BLEND_RATIO, which knows the
+// ped's own gaits; otherwise, or if its answer is out of range, typical gait
+// speeds. In game it answered sensibly for horses but 2.0 for any speed on foot.
+float moveBlendForSpeed(rdr::Ped mover, float speed, bool isHorse, bool askGame);
 // A movement task to `to`. anyMeans: TASK_GO_TO_COORD_ANY_MEANS (rides a mount
 // there), otherwise TASK_GO_STRAIGHT_TO_COORD.
 void taskGoTo(rdr::Ped ped, Vec3 to, float moveBlend, float heading, float radius, bool anyMeans);

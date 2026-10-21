@@ -47,7 +47,7 @@ struct Config {
     float correctionStart = 1.0f;   // metres of error before nudging back on track
     float correctionGain = 1.5f;    // extra m/s per metre of error
     uint32_t retaskMs = 400;        // how often a movement task is refreshed
-    float lookaheadSeconds = 0.5f;  // how far ahead of the remote position to aim
+    float lookaheadSeconds = 2.0f;  // how far ahead of the remote position to aim
     MountedTask mountedTask = MountedTask::AnyMeans;
 
     // [Display]
