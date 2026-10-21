@@ -1,0 +1,360 @@
+#include "fake_game.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <set>
+
+#include "coop/protocol.h"
+#include "natives_extra.h"  // hash constants; main.h resolves to tests/sim/main.h
+
+namespace sim {
+namespace {
+
+struct World {
+    std::map<int, Ent> ents;
+    std::map<int, std::string> blips;
+    std::map<uint32_t, bool> horseModel;   // known models -> is horse
+    std::map<uint32_t, int> loading;       // model -> frames since requested
+    std::set<uint32_t> loaded;
+    int nextId = 100;
+    int nextBlip = 5000;
+    int clock = 12 * 3600;
+    bool busy = false;
+    std::vector<std::string> text;
+    std::vector<uint64_t> unknown;
+    int badPushes = 0;
+    int createFailures = 0;
+} w;
+
+uint64_t g_hash = 0;
+std::vector<uint64_t> g_args;
+uint64_t g_result[3];
+
+int I(size_t i) {
+    if (i >= g_args.size()) {
+        ++w.badPushes;
+        return 0;
+    }
+    return static_cast<int>(static_cast<uint32_t>(g_args[i]));
+}
+
+float F(size_t i) {
+    if (i >= g_args.size()) {
+        ++w.badPushes;
+        return 0.f;
+    }
+    const uint32_t bits = static_cast<uint32_t>(g_args[i]);
+    float f;
+    std::memcpy(&f, &bits, 4);
+    return f;
+}
+
+template <typename T>
+T* P(size_t i) {
+    if (i >= g_args.size()) {
+        ++w.badPushes;
+        return nullptr;
+    }
+    return reinterpret_cast<T*>(static_cast<uintptr_t>(g_args[i]));
+}
+
+void retInt(int v) { g_result[0] = static_cast<uint32_t>(v); }
+void retBool(bool v) { retInt(v ? 1 : 0); }
+void retFloat(float v) { std::memcpy(&g_result[0], &v, 4); }
+void retPtr(const void* p) { g_result[0] = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(p)); }
+void retVec(coop::Vec3 v) {
+    std::memcpy(&g_result[0], &v.x, 4);
+    std::memcpy(&g_result[1], &v.y, 4);
+    std::memcpy(&g_result[2], &v.z, 4);
+}
+
+Ent* ent(int id) {
+    auto it = w.ents.find(id);
+    return it == w.ents.end() ? nullptr : &it->second;
+}
+
+void dismount(Ent& rider) {
+    if (Ent* m = ent(rider.mount)) m->rider = 0;
+    rider.mount = 0;
+}
+
+void dispatch() {
+    using namespace rdr;
+    switch (g_hash) {
+        case PLAYER::PLAYER_PED_ID_HASH: retInt(1); break;
+        case PLAYER::PLAYER_ID_HASH: retInt(0); break;
+        case ENTITY::DOES_ENTITY_EXIST_HASH: retBool(ent(I(0)) != nullptr); break;
+        case ENTITY::GET_ENTITY_COORDS_HASH: { Ent* e = ent(I(0)); I(2); retVec(e ? e->pos : coop::Vec3{}); break; }
+        case ENTITY::GET_ENTITY_HEADING_HASH: { Ent* e = ent(I(0)); retFloat(e ? e->heading : 0.f); break; }
+        case ENTITY::GET_ENTITY_VELOCITY_HASH: { Ent* e = ent(I(0)); I(1); retVec(e ? e->vel : coop::Vec3{}); break; }
+        case ENTITY::GET_ENTITY_MODEL_HASH: { Ent* e = ent(I(0)); retInt(e ? static_cast<int>(e->model) : 0); break; }
+        case ENTITY::SET_ENTITY_COORDS_HASH:
+        case ENTITY::SET_ENTITY_COORDS_NO_OFFSET_HASH: {
+            Ent* e = ent(I(0));
+            I(6);
+            if (e != nullptr) {
+                if (e->mount != 0) dismount(*e);  // warping a rider knocks them off
+                e->pos = {F(1), F(2), F(3)};
+                if (Ent* r = ent(e->rider)) r->pos = e->pos + coop::Vec3{0, 0, 1};
+            }
+            break;
+        }
+        case ENTITY::SET_ENTITY_HEADING_HASH: if (Ent* e = ent(I(0))) e->heading = coop::wrapDegrees(F(1)); break;
+        case ENTITY::SET_ENTITY_VELOCITY_HASH:
+            if (Ent* e = ent(I(0))) {
+                e->velOverride = true;
+                e->overrideVel = {F(1), F(2), F(3)};
+            }
+            break;
+        case ENTITY::SET_ENTITY_AS_MISSION_ENTITY_HASH: I(2); if (Ent* e = ent(I(0))) e->mission = true; break;
+        case ENTITY::SET_ENTITY_INVINCIBLE_HASH: if (Ent* e = ent(I(0))) e->invincible = I(1) != 0; break;
+        case ENTITY::IS_ENTITY_DEAD_HASH: I(0); retBool(false); break;
+        case ENTITY::DELETE_ENTITY_HASH: {
+            int* handle = P<int>(0);
+            if (handle != nullptr) {
+                if (Ent* e = ent(*handle)) {
+                    if (!e->mission) ++w.badPushes;  // the game refuses to delete non-mission entities
+                    if (e->mount != 0) dismount(*e);
+                    if (Ent* r = ent(e->rider)) r->mount = 0;
+                    w.ents.erase(*handle);
+                }
+                *handle = 0;
+            }
+            break;
+        }
+        case STREAMING::IS_MODEL_IN_CDIMAGE_HASH:
+        case STREAMING::IS_MODEL_VALID_HASH: retBool(w.horseModel.count(static_cast<uint32_t>(I(0))) != 0); break;
+        case STREAMING::REQUEST_MODEL_HASH: {
+            const uint32_t m = static_cast<uint32_t>(I(0));
+            I(1);
+            if (w.horseModel.count(m) != 0 && w.loaded.count(m) == 0 && w.loading.count(m) == 0) w.loading[m] = 0;
+            break;
+        }
+        case STREAMING::HAS_MODEL_LOADED_HASH: retBool(w.loaded.count(static_cast<uint32_t>(I(0))) != 0); break;
+        case STREAMING::SET_MODEL_AS_NO_LONGER_NEEDED_HASH: I(0); break;
+        case STREAMING::REQUEST_COLLISION_AT_COORD_HASH: F(2); break;
+        case PED::CREATE_PED_HASH: {
+            const uint32_t m = static_cast<uint32_t>(I(0));
+            I(8);
+            if (w.loaded.count(m) == 0) {
+                ++w.createFailures;
+                retInt(0);
+                break;
+            }
+            Ent e;
+            e.id = w.nextId++;
+            e.model = m;
+            e.isHorse = w.horseModel[m];
+            e.pos = {F(1), F(2), F(3)};
+            e.heading = F(4);
+            w.ents[e.id] = e;
+            retInt(e.id);
+            break;
+        }
+        case PED::_SET_RANDOM_OUTFIT_VARIATION_HASH: if (Ent* e = ent(I(0))) e->visible = true; break;
+        case PED::_EQUIP_META_PED_OUTFIT_PRESET_HASH: I(2); if (Ent* e = ent(I(0))) e->outfit = I(1); break;
+        case PED::IS_PED_ON_MOUNT_HASH: { Ent* e = ent(I(0)); retBool(e != nullptr && e->mount != 0); break; }
+        case PED::GET_MOUNT_HASH: { Ent* e = ent(I(0)); retInt(e ? e->mount : 0); break; }
+        case PED::SET_PED_ONTO_MOUNT_HASH: {
+            Ent* r = ent(I(0));
+            Ent* m = ent(I(1));
+            I(3);
+            if (r != nullptr && m != nullptr && m->isHorse) {
+                if (r->mount != 0) dismount(*r);
+                r->mount = m->id;
+                m->rider = r->id;
+                r->pos = m->pos + coop::Vec3{0, 0, 1};
+                r->hasTask = false;
+            }
+            break;
+        }
+        case PED::SET_BLOCKING_OF_NON_TEMPORARY_EVENTS_HASH: if (Ent* e = ent(I(0))) e->blocksEvents = I(1) != 0; break;
+        case PED::SET_PED_KEEP_TASK_HASH:
+        case PED::SET_PED_CAN_RAGDOLL_HASH:
+        case PED::SET_PED_CAN_BE_TARGETTED_HASH: I(1); break;
+        case PED::SET_PED_FLEE_ATTRIBUTES_HASH: I(2); break;
+        case PED::ADD_RELATIONSHIP_GROUP_HASH: {
+            const char* name = P<const char>(0);
+            uint32_t* out = P<uint32_t>(1);
+            if (out != nullptr) *out = coop::joaat(name != nullptr ? name : "");
+            retBool(true);
+            break;
+        }
+        case PED::SET_RELATIONSHIP_BETWEEN_GROUPS_HASH: I(2); break;
+        case PED::SET_PED_RELATIONSHIP_GROUP_HASH_HASH: if (Ent* e = ent(I(0))) e->relGroup = static_cast<uint32_t>(I(1)); break;
+        case TASK::TASK_GO_STRAIGHT_TO_COORD_HASH: {
+            Ent* e = ent(I(0));
+            I(8);
+            if (e != nullptr) {
+                e->hasTask = true;
+                e->taskTarget = {F(1), F(2), F(3)};
+                e->taskBlend = F(4);
+                e->taskFinalHeading = F(6);
+                e->taskRadius = F(7);
+            }
+            break;
+        }
+        case TASK::TASK_STAND_STILL_HASH: if (Ent* e = ent(I(0))) e->hasTask = false; break;
+        case TASK::CLEAR_PED_TASKS_IMMEDIATELY_HASH:
+            I(2);
+            if (Ent* e = ent(I(0))) {
+                e->hasTask = false;
+                if (e->mount != 0) dismount(*e);
+            }
+            break;
+        case CLOCK::GET_CLOCK_HOURS_HASH: retInt(w.clock / 3600); break;
+        case CLOCK::GET_CLOCK_MINUTES_HASH: retInt((w.clock / 60) % 60); break;
+        case CLOCK::GET_CLOCK_SECONDS_HASH: retInt(w.clock % 60); break;
+        case CLOCK::SET_CLOCK_TIME_HASH: w.clock = I(0) * 3600 + I(1) * 60 + I(2); break;
+        case DLC::GET_IS_LOADING_SCREEN_ACTIVE_HASH: retBool(w.busy); break;
+        case CAMERA::IS_SCREEN_FADED_OUT_HASH: retBool(false); break;
+        case MAP::BLIP_ADD_FOR_ENTITY_HASH: {
+            I(0);
+            if (ent(I(1)) == nullptr) {
+                retInt(0);
+                break;
+            }
+            const int id = w.nextBlip++;
+            w.blips[id] = "";
+            retInt(id);
+            break;
+        }
+        case MAP::DOES_BLIP_EXIST_HASH: retBool(w.blips.count(I(0)) != 0); break;
+        case MAP::_SET_BLIP_NAME_HASH: {
+            const char* name = P<const char>(1);
+            if (w.blips.count(I(0)) != 0) w.blips[I(0)] = name != nullptr ? name : "";
+            break;
+        }
+        case MAP::REMOVE_BLIP_HASH: {
+            int* handle = P<int>(0);
+            if (handle != nullptr) {
+                w.blips.erase(*handle);
+                *handle = 0;
+            }
+            break;
+        }
+        case UIDEBUG::_BG_SET_TEXT_SCALE_HASH: F(1); break;
+        case UIDEBUG::_BG_SET_TEXT_COLOR_HASH: I(3); break;
+        case UIDEBUG::_BG_DISPLAY_TEXT_HASH: {
+            const char* t = P<const char>(0);
+            F(2);
+            w.text.push_back(t != nullptr ? t : "");
+            break;
+        }
+        case MISC::VAR_STRING_HASH: {
+            if (I(0) & 1) ++w.badPushes;  // bit 0 must be clear
+            const char* label = P<const char>(1);
+            if (label == nullptr || std::strcmp(label, "LITERAL_STRING") != 0) ++w.badPushes;
+            retPtr(P<const char>(2));
+            break;
+        }
+        default:
+            w.unknown.push_back(g_hash);
+            break;
+    }
+}
+
+float taskSpeed(const Ent& mover, float blend) {
+    const int gait = std::clamp(static_cast<int>(std::lround(blend)), 1, 3);
+    static const float foot[] = {0.f, 1.5f, 3.5f, 6.0f};
+    static const float horse[] = {0.f, 2.0f, 6.0f, 12.0f};
+    return mover.isHorse ? horse[gait] : foot[gait];
+}
+
+}  // namespace
+
+void reset() {
+    w = World{};
+    Ent player;
+    player.id = 1;
+    player.model = coop::joaat("player_zero");
+    player.visible = true;
+    w.ents[1] = player;
+}
+
+void addModel(const std::string& name, bool isHorse) { w.horseModel[coop::joaat(name)] = isHorse; }
+int localPlayer() { return 1; }
+Ent* get(int id) { return ent(id); }
+
+void step(float dt) {
+    for (auto it = w.loading.begin(); it != w.loading.end();) {
+        if (++it->second >= 3) {
+            w.loaded.insert(it->first);
+            it = w.loading.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    // Movers: anything not ridden, moved by its own task or a rider's task.
+    for (auto& kv : w.ents) {
+        Ent& e = kv.second;
+        if (e.id == 1 || e.mount != 0) continue;  // the local player is moved by the test; riders follow mounts
+        Ent* rider = ent(e.rider);
+        Ent* tasked = (rider != nullptr && rider->hasTask) ? rider : (e.hasTask ? &e : nullptr);
+        if (e.velOverride) {
+            e.vel = e.overrideVel;
+            e.pos = e.pos + e.vel * dt;
+            e.velOverride = false;
+            continue;
+        }
+        if (tasked == nullptr) {
+            e.vel = {};
+            continue;
+        }
+        coop::Vec3 to = tasked->taskTarget - e.pos;
+        to.z = 0.f;
+        const float d = coop::length(to);
+        if (d <= std::max(0.05f, tasked->taskRadius)) {
+            e.vel = {};
+            e.heading = coop::wrapDegrees(tasked->taskFinalHeading);
+            tasked->hasTask = false;
+            continue;
+        }
+        const float speed = taskSpeed(e, tasked->taskBlend);
+        const coop::Vec3 dir = to * (1.f / d);
+        e.vel = dir * speed;
+        e.pos = e.pos + dir * std::min(speed * dt, d);
+        e.pos.z += (tasked->taskTarget.z - e.pos.z) * std::min(1.f, dt * 5.f);
+        e.heading = coop::forwardToHeading(dir);
+    }
+    for (auto& kv : w.ents) {
+        Ent& e = kv.second;
+        if (e.mount == 0) continue;
+        if (Ent* m = ent(e.mount)) {
+            e.pos = m->pos + coop::Vec3{0, 0, 1};
+            e.vel = m->vel;
+            e.heading = m->heading;
+        }
+    }
+    w.clock = (w.clock + 1) % 86400;
+}
+
+size_t entityCount() { return w.ents.size(); }
+size_t blipCount() { return w.blips.size(); }
+int clockSecondsOfDay() { return w.clock; }
+void setScreenBusy(bool busy) { w.busy = busy; }
+const std::vector<std::string>& textDrawn() { return w.text; }
+void clearText() { w.text.clear(); }
+const std::vector<uint64_t>& unknownNatives() { return w.unknown; }
+int pushesOutOfRange() { return w.badPushes; }
+int createPedFailures() { return w.createFailures; }
+
+}  // namespace sim
+
+// ---------------------------------------------------- the fake Script Hook API
+
+void scriptWait(DWORD) {}
+
+void nativeInit(UINT64 hash) {
+    sim::g_hash = hash;
+    sim::g_args.clear();
+}
+
+void nativePush64(UINT64 val) { sim::g_args.push_back(val); }
+
+PUINT64 nativeCall() {
+    std::memset(sim::g_result, 0, sizeof(sim::g_result));
+    sim::dispatch();
+    return sim::g_result;
+}

@@ -1,0 +1,73 @@
+# Natives used by the plugin. tools/gen_natives.py looks each one up in the
+# community RDR2 native database (alloc8or/rdr3-nativedb-data) and writes
+# plugin/natives_gen.h with the verified hash, parameter types and return type.
+# Never type a hash by hand: add the name here and re-run the generator.
+#
+# "!hash" = emit only the hash constant (for variadic natives wrapped by hand
+# in natives_extra.h).
+
+# --- player / entity -------------------------------------------------------
+PLAYER::PLAYER_PED_ID
+PLAYER::PLAYER_ID
+ENTITY::DOES_ENTITY_EXIST
+ENTITY::GET_ENTITY_COORDS
+ENTITY::GET_ENTITY_HEADING
+ENTITY::GET_ENTITY_VELOCITY
+ENTITY::GET_ENTITY_MODEL
+ENTITY::SET_ENTITY_COORDS
+ENTITY::SET_ENTITY_COORDS_NO_OFFSET
+ENTITY::SET_ENTITY_HEADING
+ENTITY::SET_ENTITY_VELOCITY
+ENTITY::SET_ENTITY_AS_MISSION_ENTITY
+ENTITY::SET_ENTITY_INVINCIBLE
+ENTITY::IS_ENTITY_DEAD
+ENTITY::DELETE_ENTITY
+
+# --- streaming -------------------------------------------------------------
+STREAMING::IS_MODEL_IN_CDIMAGE
+STREAMING::IS_MODEL_VALID
+STREAMING::REQUEST_MODEL
+STREAMING::HAS_MODEL_LOADED
+STREAMING::SET_MODEL_AS_NO_LONGER_NEEDED
+STREAMING::REQUEST_COLLISION_AT_COORD
+
+# --- peds and mounts -------------------------------------------------------
+PED::CREATE_PED
+PED::_SET_RANDOM_OUTFIT_VARIATION
+PED::_EQUIP_META_PED_OUTFIT_PRESET
+PED::IS_PED_ON_MOUNT
+PED::GET_MOUNT
+PED::SET_PED_ONTO_MOUNT
+PED::SET_BLOCKING_OF_NON_TEMPORARY_EVENTS
+PED::SET_PED_KEEP_TASK
+PED::SET_PED_CAN_RAGDOLL
+PED::SET_PED_CAN_BE_TARGETTED
+PED::SET_PED_FLEE_ATTRIBUTES
+PED::ADD_RELATIONSHIP_GROUP
+PED::SET_RELATIONSHIP_BETWEEN_GROUPS
+PED::SET_PED_RELATIONSHIP_GROUP_HASH
+
+# --- tasks -----------------------------------------------------------------
+TASK::TASK_GO_STRAIGHT_TO_COORD
+TASK::TASK_STAND_STILL
+TASK::CLEAR_PED_TASKS_IMMEDIATELY
+
+# --- world / screen state --------------------------------------------------
+CLOCK::GET_CLOCK_HOURS
+CLOCK::GET_CLOCK_MINUTES
+CLOCK::GET_CLOCK_SECONDS
+CLOCK::SET_CLOCK_TIME
+DLC::GET_IS_LOADING_SCREEN_ACTIVE
+CAMERA::IS_SCREEN_FADED_OUT
+
+# --- map blips -------------------------------------------------------------
+MAP::BLIP_ADD_FOR_ENTITY
+MAP::DOES_BLIP_EXIST
+MAP::_SET_BLIP_NAME
+MAP::REMOVE_BLIP
+
+# --- debug text overlay ----------------------------------------------------
+UIDEBUG::_BG_SET_TEXT_SCALE
+UIDEBUG::_BG_SET_TEXT_COLOR
+UIDEBUG::_BG_DISPLAY_TEXT
+MISC::VAR_STRING !hash

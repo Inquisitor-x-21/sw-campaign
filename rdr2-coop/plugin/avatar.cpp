@@ -1,0 +1,297 @@
+#include "avatar.h"
+
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstring>
+
+#include "coop/log.h"
+
+using namespace rdr;
+using coop::MoveState;
+using coop::MovementMode;
+using coop::PlayerState;
+using coop::Vec3;
+
+namespace {
+
+constexpr const char* kFallbackRider = "g_m_m_uniduster_01";
+constexpr int64_t kHorseIdleDespawnMs = 120000;
+constexpr float kHorseLeftBehindDistance = 150.f;
+
+// Outfit preset counts from the community ped list (femga/rdr3_discoveries).
+int clampOutfit(const std::string& model, int outfit) {
+    struct Known {
+        const char* model;
+        int outfits;
+    };
+    static const Known known[] = {
+        {"g_m_m_uniduster_01", 184},      {"g_m_m_uniduster_02", 56},     {"g_m_m_uniduster_03", 37},
+        {"g_m_m_unicriminals_01", 150},   {"g_m_m_unicriminals_02", 60},  {"g_m_m_unibanditos_01", 167},
+        {"g_m_m_unimountainmen_01", 129}, {"g_m_m_uniranchers_01", 87},   {"g_m_y_uniexconfeds_01", 124},
+        {"g_m_y_uniexconfeds_02", 33},    {"g_m_o_uniexconfeds_01", 93},  {"a_m_m_rancher_01", 20},
+    };
+    if (outfit < 0) return -1;
+    std::string lower = model;
+    for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (const Known& k : known) {
+        if (lower == k.model) return outfit % k.outfits;
+    }
+    return outfit;
+}
+
+float moveBlend(MoveState m) {
+    switch (m) {
+        case MoveState::Walk: return 1.f;
+        case MoveState::Run: return 2.f;
+        case MoveState::Sprint: return 3.f;
+        default: return 1.f;
+    }
+}
+
+}  // namespace
+
+AvatarTuning tuningFromConfig(const coop::Config& cfg) {
+    AvatarTuning t;
+    t.onFoot = cfg.onFootMovement;
+    t.mounted = cfg.mountedMovement;
+    t.teleportDistance = cfg.teleportDistance;
+    t.correctionStart = cfg.correctionStart;
+    t.correctionGain = cfg.correctionGain;
+    t.retaskMs = cfg.retaskMs;
+    t.lookahead = cfg.lookaheadSeconds;
+    t.blips = cfg.blips;
+    t.blipStyle = cfg.blipStyle;
+    t.fallbackHorse = cfg.fallbackHorse;
+    return t;
+}
+
+RemoteAvatar::RemoteAvatar(const coop::PlayerInfo& info) : info_(info) {}
+
+RemoteAvatar::~RemoteAvatar() { despawn(); }
+
+void RemoteAvatar::despawn() {
+    game::removeBlip(blip_);
+    game::deleteEntity(ped_);
+    game::deleteEntity(horse_);
+    footDrive_ = {};
+    horseDrive_ = {};
+    horseIdleSince_ = -1;
+}
+
+void RemoteAvatar::refreshBlip(const AvatarTuning& tuning) {
+    game::removeBlip(blip_);
+    blipStyle_ = tuning.blipStyle;
+    if (tuning.blips && ped_ != 0) blip_ = game::addBlip(ped_, tuning.blipStyle, info_.name);
+}
+
+bool RemoteAvatar::spawnRider(const PlayerState& s, int64_t now, const AvatarTuning& tuning) {
+    if (riderModel_ == 0) {
+        riderModel_ = coop::joaat(info_.model.empty() ? kFallbackRider : info_.model);
+        if (!game::modelExists(riderModel_)) {
+            LOG_WARN("%s wants model '%s', which this game doesn't have; using %s", info_.name.c_str(),
+                     info_.model.c_str(), kFallbackRider);
+            riderModel_ = coop::joaat(kFallbackRider);
+            riderOnFallback_ = true;
+        }
+    }
+    const int loaded = game::ensureModel(riderReq_, riderModel_, now);
+    if (loaded == 0) {
+        status_ = "loading model";
+        return false;
+    }
+    if (loaded < 0) {
+        if (!riderOnFallback_) {
+            LOG_WARN("model for %s didn't load; trying %s", info_.name.c_str(), kFallbackRider);
+            riderModel_ = coop::joaat(kFallbackRider);
+            riderOnFallback_ = true;
+        } else {
+            retryAt_ = now + 5000;
+            status_ = "can't load model";
+        }
+        return false;
+    }
+
+    const Vec3 pos = s.mounted() ? s.mountPos : s.pos;
+    const float heading = s.mounted() ? s.mountHeading : s.heading;
+    ped_ = game::spawnPed(riderModel_, pos, heading);
+    game::releaseModel(riderModel_);
+    if (ped_ == 0) {
+        retryAt_ = now + 2000;
+        status_ = "spawn failed, retrying";
+        LOG_WARN("CREATE_PED failed for %s, retrying in 2 s", info_.name.c_str());
+        return false;
+    }
+    const int outfit = riderOnFallback_ ? 0 : clampOutfit(info_.model, info_.outfit);
+    game::prepareAvatarPed(ped_, outfit, false);
+    refreshBlip(tuning);
+    footDrive_ = {};
+    horseDrive_ = {};
+    status_ = riderOnFallback_ ? "ok (fallback model)" : "ok";
+    LOG_INFO("spawned %s as %s outfit %d (ped %d) at %.1f %.1f %.1f", info_.name.c_str(),
+             riderOnFallback_ ? kFallbackRider : info_.model.c_str(), outfit, ped_, pos.x, pos.y, pos.z);
+    return true;
+}
+
+bool RemoteAvatar::ensureHorse(const PlayerState& s, int64_t now, const AvatarTuning& tuning) {
+    const uint32_t fallback = coop::joaat(tuning.fallbackHorse);
+    const uint32_t want = s.mountModel != 0 ? s.mountModel : fallback;
+
+    if (horse_ != 0 && !game::entityExists(horse_)) horse_ = 0;
+    if (horse_ != 0 && want != horseWanted_) {
+        LOG_INFO("%s switched horses", info_.name.c_str());
+        game::deleteEntity(horse_);
+        horseDrive_ = {};
+    }
+    if (horse_ != 0) return true;
+    if (now < horseRetryAt_) return false;
+
+    if (want != horseWanted_) {
+        horseWanted_ = want;
+        horseModel_ = game::modelExists(want) ? want : fallback;
+        horseReq_ = {};
+    }
+    const int loaded = game::ensureModel(horseReq_, horseModel_, now);
+    if (loaded == 0) {
+        status_ = "loading horse";
+        return false;
+    }
+    if (loaded < 0) {
+        if (horseModel_ != fallback) {
+            LOG_WARN("horse 0x%08X for %s didn't load; using %s", horseModel_, info_.name.c_str(),
+                     tuning.fallbackHorse.c_str());
+            horseModel_ = fallback;
+            horseReq_ = {};
+        } else {
+            horseRetryAt_ = now + 5000;
+            status_ = "can't load horse";
+        }
+        return false;
+    }
+
+    horse_ = game::spawnPed(horseModel_, s.mountPos, s.mountHeading);
+    game::releaseModel(horseModel_);
+    if (horse_ == 0) {
+        horseRetryAt_ = now + 2000;
+        LOG_WARN("CREATE_PED failed for %s's horse, retrying in 2 s", info_.name.c_str());
+        return false;
+    }
+    game::prepareAvatarPed(horse_, -1, true);
+    horseDrive_ = {};
+    status_ = "ok";
+    LOG_INFO("spawned horse 0x%08X for %s%s", horseModel_, info_.name.c_str(),
+             horseModel_ == want ? "" : " (fallback breed)");
+    return true;
+}
+
+void RemoteAvatar::dismountIfNeeded(const PlayerState& s) {
+    if (horse_ == 0 || !PED::IS_PED_ON_MOUNT(ped_)) return;
+    TASK::CLEAR_PED_TASKS_IMMEDIATELY(ped_, TRUE, TRUE);
+    ENTITY::SET_ENTITY_COORDS_NO_OFFSET(ped_, s.pos.x, s.pos.y, s.pos.z, FALSE, FALSE, FALSE);
+    footDrive_ = {};
+    horseDrive_ = {};
+}
+
+void RemoteAvatar::maybeDropIdleHorse(int64_t now) {
+    if (horse_ == 0) return;
+    if (horseIdleSince_ < 0) horseIdleSince_ = now;
+    const bool idleTooLong = now - horseIdleSince_ > kHorseIdleDespawnMs;
+    const bool leftBehind = coop::distance(game::entityPos(horse_), game::entityPos(ped_)) > kHorseLeftBehindDistance;
+    if (idleTooLong || leftBehind) {
+        game::deleteEntity(horse_);
+        horseWanted_ = 0;
+        horseIdleSince_ = -1;
+    }
+}
+
+void RemoteAvatar::update(const coop::SampleResult& sample, int64_t now, const AvatarTuning& tuning) {
+    const PlayerState& s = sample.state;
+    if (sample.extrapolated) ++stats_.extrapolated;
+    stats_.minBufferMs = std::min(stats_.minBufferMs, sample.bufferAheadMs);
+
+    if (ped_ != 0 && !game::entityExists(ped_)) {
+        LOG_WARN("stand-in for %s disappeared (game cleanup?), respawning", info_.name.c_str());
+        ped_ = 0;
+        game::removeBlip(blip_);
+        game::deleteEntity(horse_);
+    }
+    if (ped_ == 0 && (now < retryAt_ || !spawnRider(s, now, tuning))) return;
+    if ((tuning.blips != (blip_ != 0)) || blipStyle_ != tuning.blipStyle) refreshBlip(tuning);
+
+    if (s.mounted()) {
+        lastTarget_ = s.mountPos;
+        if (ensureHorse(s, now, tuning)) {
+            horseIdleSince_ = -1;
+            if (!PED::IS_PED_ON_MOUNT(ped_) || PED::GET_MOUNT(ped_) != horse_) {
+                PED::SET_PED_ONTO_MOUNT(ped_, horse_, -1, TRUE);
+                horseDrive_ = {};
+            }
+            drive(horse_, ped_, s.mountPos, s.mountVel, s.mountHeading, s.move, tuning.mounted, horseDrive_, now,
+                  tuning);
+        } else {
+            // Horse still loading: keep the rider where the horse will appear.
+            drive(ped_, ped_, s.mountPos, s.mountVel, s.mountHeading, s.move, MovementMode::Teleport, footDrive_,
+                  now, tuning);
+        }
+        return;
+    }
+
+    dismountIfNeeded(s);
+    maybeDropIdleHorse(now);
+    lastTarget_ = s.pos;
+    drive(ped_, ped_, s.pos, s.vel, s.heading, s.move, tuning.onFoot, footDrive_, now, tuning);
+}
+
+void RemoteAvatar::drive(Entity entity, Ped taskPed, Vec3 target, Vec3 vel, float heading, MoveState move,
+                         MovementMode mode, Drive& d, int64_t now, const AvatarTuning& t) {
+    const Vec3 current = game::entityPos(entity);
+    const Vec3 error = target - current;
+    const float dist = coop::length(error);
+    stats_.errorSum += dist;
+    stats_.errorMax = std::max(stats_.errorMax, dist);
+    ++stats_.samples;
+
+    if (mode == MovementMode::Teleport || dist > t.teleportDistance) {
+        ENTITY::SET_ENTITY_COORDS_NO_OFFSET(entity, target.x, target.y, target.z, FALSE, FALSE, FALSE);
+        ENTITY::SET_ENTITY_HEADING(entity, heading);
+        if (mode == MovementMode::Teleport) {
+            ENTITY::SET_ENTITY_VELOCITY(entity, vel.x, vel.y, vel.z);
+        } else {
+            ++stats_.warps;
+            d = {};
+        }
+        return;
+    }
+
+    // Hybrid: a movement task gives real walk / run / ride animations; a
+    // velocity nudge pulls the stand-in back when it drifts off the real path.
+    if (move != MoveState::Idle) {
+        const Vec3 aim = target + vel * t.lookahead;
+        const bool stale = now - d.lastTaskAt > static_cast<int64_t>(t.retaskMs);
+        if (!d.tasked || move != d.lastMove || coop::distance(aim, d.lastTaskTarget) > 1.5f || stale) {
+            TASK::TASK_GO_STRAIGHT_TO_COORD(taskPed, aim.x, aim.y, aim.z, moveBlend(move), -1, heading, 0.5f, 0);
+            d.tasked = true;
+            d.lastMove = move;
+            d.lastTaskTarget = aim;
+            d.lastTaskAt = now;
+        }
+        if (dist > t.correctionStart) {
+            const Vec3 nudge = vel + error * t.correctionGain;
+            ENTITY::SET_ENTITY_VELOCITY(entity, nudge.x, nudge.y, vel.z);
+        }
+        return;
+    }
+
+    // Standing still: walk onto the exact spot, face the same way, stop.
+    const bool justStopped = !d.tasked || d.lastMove != MoveState::Idle;
+    const bool drifted = dist > 0.75f && now - d.lastTaskAt > static_cast<int64_t>(t.retaskMs);
+    if (justStopped || drifted) {
+        TASK::TASK_GO_STRAIGHT_TO_COORD(taskPed, target.x, target.y, target.z, 1.f, -1, heading, 0.25f, 0);
+        d.tasked = true;
+        d.lastMove = MoveState::Idle;
+        d.lastTaskTarget = target;
+        d.lastTaskAt = now;
+    } else if (dist <= 0.75f && std::fabs(coop::angleDelta(game::entityHeading(entity), heading)) > 25.f) {
+        ENTITY::SET_ENTITY_HEADING(entity, heading);
+    }
+}
