@@ -1,15 +1,37 @@
 # Stage 1 review (before the first build on Windows)
 
-Done in a Linux container without Windows, the game or the Script Hook SDK.
-What could be checked here:
+Done in a Linux container without Windows, the game or the Script Hook SDK,
+in three passes: a first review, then two re-checks (a fresh line-by-line read,
+then a tool-driven pass). What could be checked here:
 
-- Linux build with all tests: `core_tests` (18), `plugin_sim_tests`,
-  `coopbot selftest`. All pass, before and after the fixes below.
+- Linux build with all tests: `core_tests` (18), `plugin_sim_tests`, the new
+  `plugin_script_tests` (the main loop, see below) and `coopbot selftest`. All
+  pass, also under AddressSanitizer + UndefinedBehaviorSanitizer, and the
+  two-thread main-loop test under ThreadSanitizer.
 - MinGW cross-compile of the plugin against `tools/ci/sdk_stub`: zero warnings,
   also with `-Wconversion -Wshadow` (to approximate MSVC `/W4`).
+- The MinGW-built `core_tests.exe` and `coopbot.exe selftest` run under Wine:
+  all pass, so ENet's Windows socket code works. A Windows `coopbot host`
+  served three Linux bots.
+- `build.bat` and `install.bat` run under Wine's `cmd`, from a folder named
+  `rdr2-coop (1)`, with fake `vswhere`/`cmake` and a Steam-style game folder
+  under `Program Files (x86)`. Checked: VS 2022 (generator by name), VS 2026
+  (CMake's default), no Visual Studio, a failing test, first install,
+  reinstall keeping the ini, missing `RDR2.exe`, no arguments. Wine can't
+  judge two things: its `cmd` runs the right side of `||` even after success
+  (a Wine bug), and it leaves `%cmdcmdline%` empty, so the double-click check
+  is per Windows' documented behaviour only.
 - `natives_gen.h` regenerated from today's alloc8or database: byte-identical,
   so every hash and signature is current.
-- Line-by-line read of `plugin/`, `core/`, `coopbot`, `build.bat`, `install.bat`.
+- Line-by-line reads of `plugin/`, `core/`, `coopbot`, `build.bat`,
+  `install.bat`.
+
+`plugin/script.cpp` was the file without any test. `tests/script_test.cpp` now
+runs the real `coopScriptMain` against the simulated game on a lockstep
+"script thread", with real sessions on loopback as the other players. It covers
+hotkeys, hosting, joining, stand-ins on foot and mounted, regroup, clock sync,
+the panel, F6 reload, stats logging, leaving, a script restart and the log
+fallback. Linux/macOS only, like `plugin_sim_tests`.
 
 What could **not** be checked here: the real SDK `main.h` (dev-c.com is
 blocked from this container), the MSVC build, and anything about how the game
@@ -17,8 +39,9 @@ reacts to a native. Those are in "Still to verify" below.
 
 ## Fixed
 
-Each plugin fix has a regression test in `tests/sim_test.cpp`. Against the
-original plugin code, those tests fail 11 checks; with the fixes, all pass.
+Each plugin fix has a regression test. Against the original plugin code, the
+new tests fail 20 checks (14 in `plugin_sim_tests`, 6 in
+`plugin_script_tests`); with the fixes, all pass.
 
 1. **Stand-ins came back as the wrong model and horse after the game
    deleted them** (`game.cpp` `ensureModel`). A finished model request stayed
@@ -45,8 +68,9 @@ original plugin code, those tests fail 11 checks; with the fixes, all pass.
    frames. It now uses `steady_clock` (QueryPerformanceCounter). coopbot and
    the tests already did.
 5. **Stale handles after the game reloads** (`script.cpp`, `avatar.cpp`).
-   Script Hook starts `coopScriptMain` again after a reload, such as loading a
-   save; the original `initialized` flag suggests this was expected. The
+   Script Hook is expected to start `coopScriptMain` again after a reload,
+   such as loading a save. Script Hook V does, and the original `initialized`
+   flag suggests the author expected it too. The
    session lives on, but stand-in handles then pointed into the old world, or
    at whatever entity got that handle next. A restart is now logged, the
    handles are dropped without calling the game, and the relationship group is
@@ -58,6 +82,8 @@ original plugin code, those tests fail 11 checks; with the fixes, all pass.
 7. **No log at all when the game folder is read-only** (e.g. Rockstar
    Launcher or Epic installs under Program Files). Logs now fall back to
    `%LOCALAPPDATA%\RDR2Coop\logs`. The log and an on-screen message say where.
+   (The second pass found that the first version of this decided "fallback
+   used" by comparing path prefixes; it now just records which folder worked.)
 8. **`build.bat` / `install.bat`:**
    - Visual Studio 2026, the current default download, wasn't supported (the
      generator was hard-coded to VS 2022). It now detects 2022 or 2026, and
@@ -72,11 +98,19 @@ original plugin code, those tests fail 11 checks; with the fixes, all pass.
      when input is redirected, so scripts and agents won't hang.
    - The copy-failed message now mentions administrator rights for Program
      Files.
-   - `.gitattributes` keeps `.bat` files CRLF.
+   - `.gitattributes` stores `.bat` files with CRLF exactly as they are. (The
+     first version let git convert them, which made `git archive`, and so
+     GitHub's "Download ZIP", hand out LF-only batch files. `cmd` can
+     mis-jump labels in those.)
 9. **Diagnostics for the two mount natives** (`avatar.cpp`). If
    `SET_PED_ONTO_MOUNT` or `CLEAR_PED_TASKS_IMMEDIATELY` hasn't taken effect
    after 60 frames, the log says so once. You can't see the screen, so that
    line is how you'll find out.
+10. **A rejected blip style was retried every frame, silently** (`avatar.cpp`,
+    found in the second pass). If `BLIP_ADD_FOR_ENTITY` returns 0 (say, the MP
+    style doesn't exist in story mode), it was called again every frame with
+    nothing in the log. It's now tried once per spawn or setting change, and
+    the log says to try another `BlipStyle`.
 
 `core/src/session.cpp`: no bugs found. Join, leave, relay, reject, timeouts and
 id reuse all hold up, and the loopback tests cover them well.
@@ -91,12 +125,13 @@ id reuse all hold up, and the loopback tests cover them well.
    fast travel. If players drop, the fix is to service ENet from a background
    thread (with Session behind a mutex), or at least to raise the timeouts.
    This is the biggest open risk.
-2. **Real SDK and MSVC.** `native_invoker.h` and `plugin.h` use only
+2. **Real SDK, MSVC, and the batch files on real Windows.** `native_invoker.h` and `plugin.h` use only
    `scriptRegister`, `scriptUnregister(HMODULE)`, `scriptWait`, `nativeInit`,
    `nativePush64` and `nativeCall`. The SDK's `main.h` is expected to declare
    them exactly like the stub, plus a few unused extras. Build with
    `build.bat`, then fix any real `/W4` warnings. Its own `static` helpers in
-   the SDK header may warn (C4505); that is harmless.
+   the SDK header may warn (C4505); that is harmless. Also double-click
+   `build.bat` once to confirm the window stays open at the end.
 3. **After loading a save mid-session**, the log should show `script restarted`
    and the stand-ins should come back. If it doesn't appear, Script Hook RDR2
    doesn't restart scripts on reload, and stand-ins should still respawn
@@ -106,7 +141,8 @@ id reuse all hold up, and the loopback tests cover them well.
    the new mount warnings, compare with `MountedMovement = Teleport`, and
    consider tasking the horse ped directly.
 5. **Blip style.** `BLIP_STYLE_MP_PLAYER` may not exist in story mode. If no
-   blip shows, try `BlipStyle = BLIP_STYLE_FRIENDLY` in the ini (F6 reloads).
+   blip shows, look for `couldn't add a ... blip` in the log and try
+   `BlipStyle = BLIP_STYLE_FRIENDLY` in the ini (F6 reloads).
 6. **Outfit presets.** Check that `_EQUIP_META_PED_OUTFIT_PRESET` applies
    without an extra `_UPDATE_PED_VARIATION`. Outfit 0 and outfit 50 should look
    different.

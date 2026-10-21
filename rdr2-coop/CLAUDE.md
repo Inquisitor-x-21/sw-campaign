@@ -22,13 +22,14 @@ up on the user's Windows PC to review it, build it, and run the in-game tests.
 
 ## Review request (do this first)
 
-A first review pass ran without Windows or the game; findings, fixes and what
+Three review passes ran without Windows or the game; findings, fixes and what
 is still unverified are in `REVIEW.md`. Read it first, then finish the parts
 only this PC can check (items 2-4 below and the in-game tests). Highest-risk
 areas, in order:
 
 1. `plugin/script.cpp` - the main loop, hotkeys, session events, regroup,
-   clock sync. Windows-only, so **no automated test covers it**.
+   clock sync. Covered on Linux by `plugin_script_tests` against the
+   simulated game; never yet run inside RDR2.
 2. Native behaviour assumptions in `plugin/avatar.cpp` and `plugin/game.cpp`
    (signatures are verified, meanings are not):
    - `TASK_GO_STRAIGHT_TO_COORD` used to animate walking and riding; on a
@@ -53,7 +54,7 @@ core/               portable: protocol, ENet session, interpolation, ini parser,
 plugin/             the .asi: game helpers, remote stand-ins, overlay, main loop
 plugin/natives.list natives used -> tools/gen_natives.py -> plugin/natives_gen.h
 tools/coopbot/      fake players for testing with one copy of the game
-tests/              unit + 4-player loopback tests; tests/sim = simulated game world
+tests/              unit + 4-player loopback tests, simulated-game tests (tests/sim)
 config/RDR2Coop.ini default settings (ships next to the .asi)
 third_party/enet    ENet 1.3.18, MIT, vendored unmodified
 sdk/                user puts the Script Hook RDR2 SDK here (not included)
@@ -68,7 +69,8 @@ sdk/                user puts the Script Hook RDR2 SDK here (not included)
 - New settings go through `core/src/config.cpp` (with range checks + a test)
   and get documented in `config/RDR2Coop.ini`.
 - Run `build.bat` after changes; it builds and runs `core_tests` and
-  `coopbot selftest`. (`plugin_sim_tests` only builds on Linux/macOS.)
+  `coopbot selftest`. (`plugin_sim_tests` and `plugin_script_tests` only
+  build on Linux/macOS.)
 
 ## Setup on this PC (ask the user before installing anything)
 

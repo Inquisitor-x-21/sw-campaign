@@ -132,7 +132,8 @@ by hand. To use another native, add its name to `plugin/natives.list` and run
 `python tools/gen_natives.py --fetch`.
 
 Developing on Linux/macOS: `cmake -S . -B build && cmake --build build`
-builds the core, bots and all tests (including the simulated-game test).
+builds the core, bots and all tests (including the simulated-game tests for
+the stand-ins and for the main loop).
 `tools/ci/mingw-toolchain.cmake` cross-compiles a Windows syntax check.
 
 ## Troubleshooting
